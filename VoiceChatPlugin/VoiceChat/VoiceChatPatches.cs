@@ -359,4 +359,3 @@ public static class VoiceChatPatches
 		_lastSentSettings = null;
 	}
 }
-}
