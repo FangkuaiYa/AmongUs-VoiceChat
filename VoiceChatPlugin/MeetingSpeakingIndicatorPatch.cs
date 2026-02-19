@@ -28,18 +28,12 @@ public static class MeetingSpeakingIndicatorPatch
 		}
 
 		HashSet<byte> speakingPlayers = new();
-		HashSet<byte> vcInstalledPlayers = new();
 		foreach (var client in room.AllClients)
 		{
 			if (client.PlayerId == byte.MaxValue) continue;
-			vcInstalledPlayers.Add(client.PlayerId);
 			if (client.Level > SpeakingThreshold)
 				speakingPlayers.Add(client.PlayerId);
 		}
-
-		var missingNames = CollectMissingPluginPlayerNames(__instance, vcInstalledPlayers);
-		string missingPrefix = string.Format(VoiceChatLocalization.Tr("missingPlayers"),
-			missingNames.Count > 0 ? string.Join(", ", missingNames) : "-");
 
 		HashSet<byte> aliveIndicators = new();
 		foreach (var state in __instance.playerStates)
@@ -48,27 +42,10 @@ public static class MeetingSpeakingIndicatorPatch
 			aliveIndicators.Add(state.TargetPlayerId);
 
 			var indicator = GetOrCreateIndicator(state);
-			indicator.text = missingPrefix + "\n" + VoiceChatLocalization.Tr("speaking");
 			indicator.gameObject.SetActive(speakingPlayers.Contains(state.TargetPlayerId));
 		}
 
 		CleanupStale(aliveIndicators);
-	}
-
-	private static List<string> CollectMissingPluginPlayerNames(MeetingHud hud, HashSet<byte> vcInstalledPlayers)
-	{
-		var names = new List<string>();
-		foreach (var state in hud.playerStates)
-		{
-			if (state == null) continue;
-			if (!vcInstalledPlayers.Contains(state.TargetPlayerId))
-			{
-				string name = state.NameText != null ? state.NameText.text : $"P{state.TargetPlayerId}";
-				name = name.Replace("\n", " ").Trim();
-				if (!string.IsNullOrEmpty(name)) names.Add(name);
-			}
-		}
-		return names;
 	}
 
 	[HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.OnDestroy))]
@@ -83,7 +60,6 @@ public static class MeetingSpeakingIndicatorPatch
 			Indicators.Clear();
 		}
 	}
-
 
 	private static TextMeshPro GetOrCreateIndicator(PlayerVoteArea state)
 	{
@@ -100,7 +76,7 @@ public static class MeetingSpeakingIndicatorPatch
 			tmp.fontSize = 2f;
 			tmp.color = Color.green;
 			tmp.alignment = TextAlignmentOptions.Center;
-			go.transform.localPosition = new Vector3(-0.52f, 0.33f, -1f);
+			go.transform.localPosition = new Vector3(-0.52f, 0.21f, -1f);
 			Indicators[state.TargetPlayerId] = tmp;
 			return tmp;
 		}
@@ -112,9 +88,9 @@ public static class MeetingSpeakingIndicatorPatch
 		indicator.color = Color.green;
 		indicator.alignment = TextAlignmentOptions.Center;
 		indicator.enableWordWrapping = false;
-		indicator.fontSize = template.fontSize * 0.58f;
-		indicator.transform.localPosition = new Vector3(-0.52f, 0.33f, -1f);
-		indicator.transform.localScale = template.transform.localScale * 0.78f;
+		indicator.fontSize = template.fontSize * 0.9f;
+		indicator.transform.localPosition = new Vector3(-0.52f, 0.21f, -1f);
+		indicator.transform.localScale = template.transform.localScale * 0.8f;
 		indicatorObj.SetActive(false);
 		Indicators[state.TargetPlayerId] = indicator;
 		return indicator;

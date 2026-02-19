@@ -90,11 +90,38 @@ public class VCPlayer
 		bool targetDead = _mappedPlayer!.Data?.IsDead == true;
 		bool localImpostor = PlayerControl.LocalPlayer && PlayerControl.LocalPlayer.Data?.Role?.IsImpostor == true;
 		bool targetImpostor = _mappedPlayer.Data?.Role?.IsImpostor == true;
-		bool canHear = localDead || !targetDead;
 
+		if (localDead)
+		{
+			_normalVolume.Volume = targetDead ? 1f : 0f;
+			_radioVolume.Volume = 0f;
+			_ghostVolume.Volume = targetDead ? 1f : 0f;
+			_imager.Pan = 0f;
+			return;
+		}
+
+		bool useImpostorRadioOnly = VoiceChatPatches.IsImpostorRadioOnly && localImpostor && !localDead;
+		bool bothImpostorAlive = localImpostor && targetImpostor && !targetDead;
+
+		if (bothImpostorAlive)
+		{
+			if (useImpostorRadioOnly)
+			{
+				_normalVolume.Volume = 0f;
+				_radioVolume.Volume = 1f;
+			}
+			else
+			{
+				_normalVolume.Volume = 1f;
+				_radioVolume.Volume = 0f;
+			}
+		}
+		else
+		{
+			_normalVolume.Volume = useImpostorRadioOnly ? 0f : (targetDead ? 0f : 1f);
+			_radioVolume.Volume = 0f;
+		}
 		_imager.Pan = 0f;
-		_normalVolume.Volume = canHear ? 1f : 0f;
-		_radioVolume.Volume = (!localDead && localImpostor && targetImpostor && !targetDead) ? 1f : 0f;
 		_ghostVolume.Volume = 0f;
 	}
 
@@ -113,23 +140,6 @@ public class VCPlayer
 		bool targetDead = _mappedPlayer.Data?.IsDead == true;
 		bool localImpostor = PlayerControl.LocalPlayer && PlayerControl.LocalPlayer.Data?.Role?.IsImpostor == true;
 		bool targetImpostor = _mappedPlayer.Data?.Role?.IsImpostor == true;
-		float hearRange = VoiceChatConfig.SyncedRoomSettings.MaxChatDistance;
-
-		float distance = Vector2.Distance(targetPos, listenerPos.Value);
-		float volume = VoiceChatRoom.GetVolume(distance, hearRange);
-		float pan = VoiceChatRoom.GetPan(listenerPos.Value.x, targetPos.x);
-
-		_imager.Pan = pan;
-
-		if (VoiceChatConfig.SyncedRoomSettings.CanTalkThroughWalls)
-		{
-			_wallCoeff = 1f;
-		}
-		else
-		{
-			bool hasWall = Physics2D.Linecast(listenerPos.Value, targetPos, LayerMask.GetMask("Shadow"));
-			_wallCoeff = Lerp(_wallCoeff, hasWall ? 0f : 1f, Time.deltaTime * 4f);
-		}
 
 		if (localDead)
 		{
@@ -140,8 +150,44 @@ public class VCPlayer
 			return;
 		}
 
-		_normalVolume.Volume = targetDead ? 0f : (volume * _wallCoeff);
-		_radioVolume.Volume = (localImpostor && targetImpostor && !targetDead) ? 1f : 0f;
+		float hearRange = VoiceChatConfig.SyncedRoomSettings.MaxChatDistance;
+		float distance = Vector2.Distance(targetPos, listenerPos.Value);
+		float volume = VoiceChatRoom.GetVolume(distance, hearRange);
+		float pan = VoiceChatRoom.GetPan(listenerPos.Value.x, targetPos.x);
+		_imager.Pan = pan;
+
+		if (!VoiceChatConfig.SyncedRoomSettings.CanTalkThroughWalls)
+		{
+			bool hasWall = Physics2D.Linecast(listenerPos.Value, targetPos, LayerMask.GetMask("Shadow"));
+			_wallCoeff = Lerp(_wallCoeff, hasWall ? 0f : 1f, Time.deltaTime * 4f);
+		}
+		else
+		{
+			_wallCoeff = 1f;
+		}
+
+		bool useImpostorRadioOnly = VoiceChatPatches.IsImpostorRadioOnly && localImpostor && !localDead;
+		bool bothImpostorAlive = localImpostor && targetImpostor && !targetDead;
+
+		if (bothImpostorAlive)
+		{
+			if (useImpostorRadioOnly)
+			{
+				_normalVolume.Volume = 0f;
+				_radioVolume.Volume = 1f;
+			}
+			else
+			{
+				_normalVolume.Volume = volume * _wallCoeff;
+				_radioVolume.Volume = 0f;
+			}
+		}
+		else
+		{
+			_normalVolume.Volume = useImpostorRadioOnly ? 0f : (targetDead ? 0f : (volume * _wallCoeff));
+			_radioVolume.Volume = 0f;
+		}
+
 		_ghostVolume.Volume = 0f;
 	}
 

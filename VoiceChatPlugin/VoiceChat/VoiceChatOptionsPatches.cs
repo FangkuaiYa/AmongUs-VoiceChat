@@ -22,13 +22,9 @@ public static class VoiceChatOptionsPatches
 	private static readonly List<string> _speakerDevices = new();
 
 	private const string VoiceOptionsButtonName = "VoiceChatOptionsButton";
-
-	// ─── 布局常量 ─────────────────────────────────────────────────────────────
-	// 面板在 Among Us 世界坐标系中高度约 ±2.5，宽度约 ±2.2
-	// 为避免内容超出背景边界，所有行都限制在 y ∈ [-2.0, 2.1] 范围内
-	private const float RowHeight = 0.55f;  // 每行高度
-	private const float SectionGap = 0.15f;  // 分区间额外间距
-	private const float TopY = 2.5f;  // 第一行（标题）y，不超过背景顶边
+	private const float RowHeight = 0.55f;  // High
+	private const float SectionGap = 0.15f;  // Extra Distance
+	private const float TopY = 2.5f;  // First y
 
 	[HarmonyPatch(typeof(OptionsMenuBehaviour), nameof(OptionsMenuBehaviour.Start))]
 	[HarmonyPostfix]
@@ -69,7 +65,6 @@ public static class VoiceChatOptionsPatches
 				Object.Destroy(child);
 		}
 
-		// 美化面板背景色
 		var bg = _popUp.transform.Find("Background")?.GetComponent<SpriteRenderer>();
 		if (bg != null)
 			bg.color = new Color32(12, 14, 22, 240);
@@ -145,14 +140,11 @@ public static class VoiceChatOptionsPatches
 
 		RefreshDeviceCaches();
 
-		// ─── 线性从顶到底布局，超出底部限制则停止渲染 ─────────────────────────
 		float y = TopY;
 
-		// 标题
 		CreateHeader(y);
 		y -= RowHeight + SectionGap;
 
-		// ── 音频设备区 ────────────────────────────────────────────────────────
 		CreateSectionLabel(VoiceChatLocalization.Tr("audioDevices"), y);
 		y -= RowHeight * 0.70f;
 
@@ -191,7 +183,6 @@ public static class VoiceChatOptionsPatches
 		y -= RowHeight;
 #endif
 
-		// ── 房间设置区 ────────────────────────────────────────────────────────
 		y -= SectionGap;
 		CreateHostRoomSettingsSection(ref y);
 	}
@@ -204,7 +195,6 @@ public static class VoiceChatOptionsPatches
 		CreateSectionLabel(VoiceChatLocalization.Tr("roomSettings"), y);
 		y -= RowHeight * 0.70f;
 
-		// 只读信息行（所有玩家均可见）
 		string wallText = synced.CanTalkThroughWalls ? VoiceChatLocalization.Tr("passThrough") : VoiceChatLocalization.Tr("blocked");
 		CreateValueDisplay(y, VoiceChatLocalization.Tr("walls"), wallText);
 		y -= RowHeight;
@@ -212,14 +202,12 @@ public static class VoiceChatOptionsPatches
 		CreateValueDisplay(y, VoiceChatLocalization.Tr("maxDistance"), $"{synced.MaxChatDistance:0.0}");
 		y -= RowHeight;
 
-		// 主机专属操作按钮
 		if (!isHost) return;
 
 		y -= SectionGap * 0.5f;
 
 		float btnY = y;
 
-		// Walls 切换按钮（左侧）
 		CreateWideActionButton(
 			synced.CanTalkThroughWalls ? VoiceChatLocalization.Tr("wallsPass") : VoiceChatLocalization.Tr("wallsBlock"),
 			new Vector3(-1.25f, btnY, -0.5f),
@@ -230,7 +218,6 @@ public static class VoiceChatOptionsPatches
 				ApplyAndBroadcastHostRoomSettings();
 			});
 
-		// Distance − 按钮（中间）
 		CreateWideActionButton(VoiceChatLocalization.Tr("distanceMinus"),
 			new Vector3(0f, btnY, -0.5f),
 			new Color32(70, 55, 120, 255),
@@ -241,7 +228,6 @@ public static class VoiceChatOptionsPatches
 				ApplyAndBroadcastHostRoomSettings();
 			});
 
-		// Distance + 按钮（右侧）
 		CreateWideActionButton(VoiceChatLocalization.Tr("distancePlus"),
 			new Vector3(1.25f, btnY, -0.5f),
 			new Color32(70, 55, 120, 255),
@@ -263,8 +249,7 @@ public static class VoiceChatOptionsPatches
 	{
 		VoiceChatConfig.ApplyLocalHostSettingsToSynced();
 		VoiceChatRoomSettings.SendToAll(VoiceChatConfig.SyncedRoomSettings);
-		// 通知 VoiceChatPatches 记录本次发送的值，避免下一帧再次触发同步
-		VoiceChatPatches.MarkRoomSettingsDirty(); // 实际上 Mark 后会立即被覆盖为已同步状态
+		VoiceChatPatches.MarkRoomSettingsDirty();
 		VoiceChatPluginMain.Logger.LogInfo(
 			$"[VC] Host updated room settings: throughWalls={VoiceChatConfig.SyncedRoomSettings.CanTalkThroughWalls}, " +
 			$"maxDistance={VoiceChatConfig.SyncedRoomSettings.MaxChatDistance:0.0}");
@@ -307,8 +292,6 @@ public static class VoiceChatOptionsPatches
 		}
 #endif
 	}
-
-	// ─── UI 构建辅助方法 ─────────────────────────────────────────────────────
 
 	private static void CreateHeader(float y)
 	{
@@ -455,8 +438,6 @@ public static class VoiceChatOptionsPatches
 		passive.OnMouseOver.AddListener((Action)(() => button.Background.color = highlight));
 		passive.OnMouseOut.AddListener((Action)(() => button.Background.color = defaultColor));
 	}
-
-	// ─── 工具 ─────────────────────────────────────────────────────────────────
 
 	private static string ToDisplayValue(string raw)
 		=> string.IsNullOrEmpty(raw) ? VoiceChatLocalization.Tr("default") : raw;

@@ -29,15 +29,15 @@ namespace VoiceChatPlugin
 			var tracker = _speakingTracker;
 			if (VoiceChatPatches.IsSpeakerMuted)
 			{
-				tracker.gameObject.SetActive(true);
-				tracker.text.text = string.Empty;
+				tracker?.gameObject?.SetActive(true);
+				tracker?.text.text = string.Empty;
 				return;
 			}
 
 			var room = VoiceChatRoom.Current;
 			if (room == null)
 			{
-				tracker.gameObject.SetActive(false);
+				tracker?.gameObject?.SetActive(false);
 				return;
 			}
 
@@ -55,19 +55,24 @@ namespace VoiceChatPlugin
 				speakers.Add(PlayerControl.LocalPlayer.Data?.PlayerName ?? PlayerControl.LocalPlayer.name);
 
 			List<string> noVcPlayers = new();
+			byte localPlayerId = PlayerControl.LocalPlayer ? PlayerControl.LocalPlayer.PlayerId : byte.MaxValue;
 			foreach (var player in PlayerControl.AllPlayerControls)
 			{
 				if (!player || player.Data == null) continue;
+				if (player.PlayerId == localPlayerId) continue;
 				if (!vcInstalledPlayers.Contains(player.PlayerId))
 					noVcPlayers.Add(player.Data.PlayerName);
 			}
 
+			string speakingLabel = VoiceChatLocalization.Tr("speaking");
+			string noVcLabel = string.Format(VoiceChatLocalization.Tr("missingPlayers"),
+				noVcPlayers.Count > 0 ? string.Join(", ", noVcPlayers.Distinct()) : "-");
 			string speakingText = speakers.Count > 0
-				? "<color=#00FF00FF>Speaking: " + string.Join(", ", speakers.Distinct()) + "</color>"
+				? $"<color=#00FF00FF>{speakingLabel}: {string.Join(", ", speakers.Distinct())}</color>"
 				: string.Empty;
-			string missingText = "<color=#FFD35AFF>No VC: " + (noVcPlayers.Count > 0 ? string.Join(", ", noVcPlayers.Distinct()) : "-") + "</color>";
-			tracker.gameObject.SetActive(true);
-			tracker.text.text = string.IsNullOrEmpty(speakingText)
+			string missingText = $"<color=#FFD35AFF>{noVcLabel}</color>"; 
+			tracker?.gameObject?.SetActive(true);
+			tracker?.text.text = string.IsNullOrEmpty(speakingText)
 				? missingText
 				: speakingText + "\n" + missingText;
 

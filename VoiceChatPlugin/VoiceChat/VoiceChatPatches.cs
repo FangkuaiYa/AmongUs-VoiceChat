@@ -19,13 +19,14 @@ public static class VoiceChatPatches
 	private static readonly AspectPosition.EdgeAlignments VoiceButtonAnchor = AspectPosition.EdgeAlignments.RightTop;
 	private static readonly Vector3 MicDistanceFromEdge = new(3.85f, 0.55f, 0f);
 	private static readonly Vector3 SpeakerDistanceFromEdge = new(4.50f, 0.55f, 0f);
-	private static bool _speakerMuted;
+
 	private static bool _micMuted;
+	private static bool _impostorMode;
+	private static bool _speakerMuted;
 
 	public static bool IsSpeakerMuted => _speakerMuted;
+	public static bool IsImpostorRadioOnly => _impostorMode;
 
-
-	// ─── 同步节流：只有设置发生变化时才同步，而非定时轮询 ─────────────────────
 	private static VoiceChatRoomSettings? _lastSentSettings;
 
 	[HarmonyPostfix]
@@ -62,13 +63,13 @@ public static class VoiceChatPatches
 
 		if (VoiceChatRoom.Current != null)
 		{
-			VoiceChatRoom.Current.SetMute(_micMuted);
+			ApplyMicStateToVoiceChat();
 		}
 
 		if (__instance.AmHost)
 		{
 			VoiceChatConfig.ApplyLocalHostSettingsToSynced();
-			_lastSentSettings = null; // 强制立即同步一次
+			_lastSentSettings = null;
 			TrySyncHostRoomSettingsIfChanged();
 		}
 
@@ -101,14 +102,11 @@ public static class VoiceChatPatches
 
 		if (_micToggleButtonObject == null || _micToggleButton == null)
 		{
-			// 必须从已有 GameObject 克隆，不能直接 AddComponent<PassiveButton>（Il2Cpp 限制）
 			_micToggleButtonObject = Object.Instantiate(hud.MapButton.gameObject, hud.transform.parent);
 			_micToggleButtonObject.name = "VC_MicToggleButton";
 
-			// 把克隆来的所有背景/边框 SpriteRenderer 设为完全透明
 			HideButtonBackground(_micToggleButtonObject);
 
-			// 在按钮中心叠加图标（独立 GameObject，sortingOrder 高于背景）
 			var micIconObj = new GameObject("VCIcon");
 			micIconObj.transform.SetParent(_micToggleButtonObject.transform, false);
 			micIconObj.transform.localPosition = Vector3.zero;
@@ -151,7 +149,6 @@ public static class VoiceChatPatches
 		}
 	}
 
-	/// <summary>将按钮克隆体的所有背景/边框 SpriteRenderer 设为完全透明</summary>
 	private static void HideButtonBackground(GameObject buttonObj)
 	{
 		foreach (var sr in buttonObj.GetComponentsInChildren<SpriteRenderer>())
@@ -179,7 +176,6 @@ public static class VoiceChatPatches
 		return null!;
 	}
 
-	// 保留旧名用于兼容
 	public static Sprite loadSpriteFromResources(string path, float pixelsPerUnit, bool cache = true)
 		=> LoadSpriteFromResources(path, pixelsPerUnit, cache);
 
@@ -233,15 +229,56 @@ public static class VoiceChatPatches
 		RefreshButtonVisuals();
 	}
 
+	/// <summary>
+	/// 麦克风三态循环：
+	/// 正常（全员语音）→ 内鬼频道 → 静音 → 正常
+	/// </summary>
 	private static void ToggleMic()
 	{
-		_micMuted = !_micMuted;
-		if (VoiceChatRoom.Current != null)
+		string oldState = _micMuted ? "静音" : (_impostorMode ? "内鬼频道" : "正常");
+
+		bool canUseImpostorMode = PlayerControl.LocalPlayer != null &&
+						  PlayerControl.LocalPlayer.Data?.Role?.IsImpostor == true &&
+						  !PlayerControl.LocalPlayer.Data.IsDead;
+
+		if (!_micMuted && !_impostorMode)
 		{
-			VoiceChatRoom.Current.SetMute(_micMuted);
+			if (canUseImpostorMode)
+			{
+				_impostorMode = true;
+				_micMuted = false;
+			}
+			else
+			{
+				_impostorMode = false;
+				_micMuted = true;
+			}
 		}
-		VoiceChatPluginMain.Logger.LogInfo("[VC] Mic " + (_micMuted ? "OFF" : "ON"));
+		else if (!_micMuted && _impostorMode)
+		{
+			_impostorMode = false;
+			_micMuted = true;
+		}
+		else if (_micMuted && !_impostorMode)
+		{
+			_micMuted = false;
+			_impostorMode = false;
+		}
+
+		ApplyMicStateToVoiceChat();
+
+		string newState = _micMuted ? "静音" : (_impostorMode ? "内鬼频道" : "正常");
+		VoiceChatPluginMain.Logger.LogInfo($"[VC] Mic: {oldState} → {newState}");
 		RefreshButtonVisuals();
+	}
+
+	/// <summary>
+	/// 将当前麦克风状态应用到语音房间（静音/内鬼模式）
+	/// </summary>
+	private static void ApplyMicStateToVoiceChat()
+	{
+		if (VoiceChatRoom.Current == null) return;
+		VoiceChatRoom.Current.SetMute(_micMuted);
 	}
 
 	private static void ToggleSpeaker()
@@ -259,18 +296,25 @@ public static class VoiceChatPatches
 	{
 		if (_micToggleButtonObject != null)
 		{
-			// 图标在名为 "VCIcon" 的子对象上，根对象的 SR 已被设为透明
 			var iconTransform = _micToggleButtonObject.transform.Find("VCIcon");
 			var renderer = iconTransform != null ? iconTransform.GetComponent<SpriteRenderer>() : null;
 			if (renderer != null)
 			{
-				renderer.sprite = LoadSpriteFromResources(
-					_micMuted
-						? "VoiceChatPlugin.Resources.MicOff.png"
-						: "VoiceChatPlugin.Resources.MicOn.png",
-					900f);
-				// 静音时叠加红色滤镜，方便快速识别状态
-				renderer.color = _micMuted ? new Color(1f, 0.45f, 0.45f, 1f) : Color.white;
+				if (_micMuted)
+				{
+					renderer.sprite = LoadSpriteFromResources("VoiceChatPlugin.Resources.MicOff.png", 900f);
+					renderer.color = new Color(1f, 0.45f, 0.45f, 1f);
+				}
+				else if (_impostorMode)
+				{
+					renderer.sprite = LoadSpriteFromResources("VoiceChatPlugin.Resources.MicOn.png", 900f);
+					renderer.color = new Color(0.5f, 0.9f, 1f, 1f);
+				}
+				else
+				{
+					renderer.sprite = LoadSpriteFromResources("VoiceChatPlugin.Resources.MicOn.png", 900f);
+					renderer.color = Color.white; 
+				}
 			}
 		}
 
@@ -292,7 +336,6 @@ public static class VoiceChatPatches
 
 	/// <summary>
 	/// 仅在房间设置实际发生变化时才向所有客户端同步，避免无意义的网络广播。
-	/// 参考 TheOtherRoles 的实现：只在有变化时发送，不定时轮询。
 	/// </summary>
 	private static void TrySyncHostRoomSettingsIfChanged()
 	{
@@ -301,7 +344,6 @@ public static class VoiceChatPatches
 
 		var current = VoiceChatConfig.SyncedRoomSettings;
 
-		// 与上次发送的设置相比，只有在真正变化时才发送
 		if (_lastSentSettings != null
 			&& _lastSentSettings.CanTalkThroughWalls == current.CanTalkThroughWalls
 			&& Mathf.Approximately(_lastSentSettings.MaxChatDistance, current.MaxChatDistance))
@@ -312,9 +354,9 @@ public static class VoiceChatPatches
 		VoiceChatPluginMain.Logger.LogInfo($"[VC] Synced room settings to all: throughWalls={current.CanTalkThroughWalls}, maxDistance={current.MaxChatDistance:0.0}");
 	}
 
-	// 供外部（如 VoiceChatOptionsPatches）在主机主动修改设置后立即触发一次同步
 	public static void MarkRoomSettingsDirty()
 	{
 		_lastSentSettings = null;
 	}
+}
 }
