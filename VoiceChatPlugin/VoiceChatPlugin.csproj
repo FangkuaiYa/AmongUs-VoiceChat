@@ -1,0 +1,156 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<TargetFramework>net6.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<RootNamespace>VoiceChatPlugin</RootNamespace>
+		<AssemblyName>VoiceChatPlugin</AssemblyName>
+		<LangVersion>preview</LangVersion>
+		<Nullable>enable</Nullable>
+		<DebugType>embedded</DebugType>
+		<CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<DebugSymbols>false</DebugSymbols>
+		<GenerateAssemblyInfo>True</GenerateAssemblyInfo>
+		<Configurations>Android;Windows;</Configurations>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="BepInEx.Unity.IL2CPP" Version="6.0.0-be.735" Private="false" ExcludeAssets="runtime;native" />
+		<PackageReference Include="AmongUs.GameLibs.Steam" Version="2025.10.14" PrivateAssets="all" />
+		<PackageReference Include="BepInEx.AutoPlugin" Version="1.1.0" PrivateAssets="all" />
+		<PackageReference Include="BepInEx.IL2CPP.MSBuild" Version="2.1.0-rc.1" PrivateAssets="all" ExcludeAssets="runtime" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="Resources\**" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="Interstellar">
+			<HintPath>Libs\Interstellar.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="Interstellar.Messages">
+			<HintPath>Libs\Interstellar.Messages.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="NAudio">
+			<HintPath>Libs\NAudio.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="NAudio.Core">
+			<HintPath>Libs\NAudio.Core.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="NAudio.Wasapi">
+			<HintPath>Libs\NAudio.Wasapi.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="NAudio.WinMM">
+			<HintPath>Libs\NAudio.WinMM.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="NAudio.Asio">
+			<HintPath>Libs\NAudio.Asio.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="NAudio.Midi">
+			<HintPath>Libs\NAudio.Midi.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="SIPSorcery">
+			<HintPath>Libs\SIPSorcery.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="SIPSorceryMedia.Abstractions">
+			<HintPath>Libs\SIPSorceryMedia.Abstractions.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="BouncyCastle.Cryptography">
+			<HintPath>Libs\BouncyCastle.Cryptography.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="Concentus">
+			<HintPath>Libs\Concentus.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="DnsClient">
+			<HintPath>Libs\DnsClient.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="Microsoft.Extensions.DependencyInjection.Abstractions">
+			<HintPath>Libs\Microsoft.Extensions.DependencyInjection.Abstractions.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="Microsoft.Extensions.Logging.Abstractions">
+			<HintPath>Libs\Microsoft.Extensions.Logging.Abstractions.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="System.Diagnostics.DiagnosticSource">
+			<HintPath>Libs\System.Diagnostics.DiagnosticSource.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="websocket-sharp">
+			<HintPath>Libs\websocket-sharp.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+	</ItemGroup>
+
+	<!-- 全 DLL を EmbeddedResource として本体に内包 -->
+	<ItemGroup>
+		<EmbeddedResource Include="Libs\Interstellar.dll">
+			<LogicalName>Lib.Interstellar.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\Interstellar.Messages.dll">
+			<LogicalName>Lib.Interstellar.Messages.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\NAudio.dll">
+			<LogicalName>Lib.NAudio.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\NAudio.Core.dll">
+			<LogicalName>Lib.NAudio.Core.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\NAudio.Wasapi.dll">
+			<LogicalName>Lib.NAudio.Wasapi.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\NAudio.WinMM.dll">
+			<LogicalName>Lib.NAudio.WinMM.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\NAudio.Asio.dll">
+			<LogicalName>Lib.NAudio.Asio.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\NAudio.Midi.dll">
+			<LogicalName>Lib.NAudio.Midi.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\SIPSorcery.dll">
+			<LogicalName>Lib.SIPSorcery.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\SIPSorceryMedia.Abstractions.dll">
+			<LogicalName>Lib.SIPSorceryMedia.Abstractions.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\BouncyCastle.Cryptography.dll">
+			<LogicalName>Lib.BouncyCastle.Cryptography.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\Concentus.dll">
+			<LogicalName>Lib.Concentus.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\DnsClient.dll">
+			<LogicalName>Lib.DnsClient.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\Microsoft.Extensions.DependencyInjection.Abstractions.dll">
+			<LogicalName>Lib.Microsoft.Extensions.DependencyInjection.Abstractions.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\Microsoft.Extensions.Logging.Abstractions.dll">
+			<LogicalName>Lib.Microsoft.Extensions.Logging.Abstractions.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\System.Diagnostics.DiagnosticSource.dll">
+			<LogicalName>Lib.System.Diagnostics.DiagnosticSource.dll</LogicalName>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Libs\websocket-sharp.dll">
+			<LogicalName>Lib.websocket-sharp.dll</LogicalName>
+		</EmbeddedResource>
+	</ItemGroup>
+
+</Project>
