@@ -88,12 +88,14 @@ public class VCPlayer
 
 		bool localDead = PlayerControl.LocalPlayer && PlayerControl.LocalPlayer.Data?.IsDead == true;
 		bool targetDead = _mappedPlayer!.Data?.IsDead == true;
+		bool localImpostor = PlayerControl.LocalPlayer && PlayerControl.LocalPlayer.Data?.Role?.IsImpostor == true;
+		bool targetImpostor = _mappedPlayer.Data?.Role?.IsImpostor == true;
 		bool canHear = localDead || !targetDead;
 
 		_imager.Pan = 0f;
 		_normalVolume.Volume = canHear ? 1f : 0f;
+		_radioVolume.Volume = (!localDead && localImpostor && targetImpostor && !targetDead) ? 1f : 0f;
 		_ghostVolume.Volume = 0f;
-		_radioVolume.Volume = 0f;
 	}
 
 	private float _wallCoeff = 1f;
@@ -109,6 +111,8 @@ public class VCPlayer
 		var targetPos = (Vector2)_mappedPlayer!.transform.position;
 		bool localDead = PlayerControl.LocalPlayer && PlayerControl.LocalPlayer.Data?.IsDead == true;
 		bool targetDead = _mappedPlayer.Data?.IsDead == true;
+		bool localImpostor = PlayerControl.LocalPlayer && PlayerControl.LocalPlayer.Data?.Role?.IsImpostor == true;
+		bool targetImpostor = _mappedPlayer.Data?.Role?.IsImpostor == true;
 		float hearRange = VoiceChatConfig.SyncedRoomSettings.MaxChatDistance;
 
 		float distance = Vector2.Distance(targetPos, listenerPos.Value);
@@ -129,24 +133,16 @@ public class VCPlayer
 
 		if (localDead)
 		{
-			// Soul channel: dead players always hear each other regardless of distance/walls.
-			if (targetDead)
-			{
-				_imager.Pan = 0f;
-				_normalVolume.Volume = 1f;
-			}
-			else
-			{
-				_normalVolume.Volume = 0f;
-			}
-			_ghostVolume.Volume = 0f;
+			_normalVolume.Volume = targetDead ? 1f : 0f;
+			_radioVolume.Volume = 0f;
+			_ghostVolume.Volume = targetDead ? 1f : 0f;
+			_imager.Pan = 0f;
+			return;
 		}
-		else
-		{
-			_normalVolume.Volume = targetDead ? 0f : (volume * _wallCoeff);
-			_ghostVolume.Volume = 0f;
-		}
-		_radioVolume.Volume = 0f;
+
+		_normalVolume.Volume = targetDead ? 0f : (volume * _wallCoeff);
+		_radioVolume.Volume = (localImpostor && targetImpostor && !targetDead) ? 1f : 0f;
+		_ghostVolume.Volume = 0f;
 	}
 
 	private static float Lerp(float a, float b, float t) =>

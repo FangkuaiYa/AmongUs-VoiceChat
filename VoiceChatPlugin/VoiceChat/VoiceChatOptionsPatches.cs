@@ -57,7 +57,7 @@ public static class VoiceChatOptionsPatches
 
 		var panelTransform = _popUp.transform;
 		var pos = panelTransform.localPosition;
-		pos.z = -810f;
+		pos.z = -860f;
 		panelTransform.localPosition = pos;
 
 		Object.Destroy(_popUp.GetComponent<OptionsMenuBehaviour>());
@@ -94,9 +94,10 @@ public static class VoiceChatOptionsPatches
 		if (existing != null)
 			Object.Destroy(existing.gameObject);
 
-		var entryButton = Object.Instantiate(_buttonPrefab, parent);
+		var entryButton = Object.Instantiate(_buttonPrefab!, parent);
 		entryButton.name = VoiceOptionsButtonName;
-		entryButton.transform.localPosition = AmongUsClient.Instance.GameState == InnerNet.InnerNetClient.GameStates.NotJoined ? new Vector3(-1.34f, 2.99f, 0f) : new Vector3(-1.94f, -1.58f, 0f);
+		var gameState = AmongUsClient.Instance != null ? AmongUsClient.Instance.GameState : InnerNet.InnerNetClient.GameStates.NotJoined;
+		entryButton.transform.localPosition = gameState == InnerNet.InnerNetClient.GameStates.NotJoined ? new Vector3(-1.34f, 2.99f, 0f) : new Vector3(-1.94f, -1.58f, 0f);
 		entryButton.transform.localScale = new Vector3(0.49f, 0.82f, 1f);
 
 		entryButton.Text.text = "VC";
@@ -113,7 +114,7 @@ public static class VoiceChatOptionsPatches
 			if (instance.transform.parent != null && instance.transform.parent == HudManager.Instance.transform)
 			{
 				_popUp.transform.SetParent(HudManager.Instance.transform);
-				_popUp.transform.localPosition = new Vector3(0f, 0f, -800f);
+				_popUp.transform.localPosition = new Vector3(0f, 0f, -860f);
 				closeUnderlying = true;
 			}
 			else
@@ -428,7 +429,7 @@ public static class VoiceChatOptionsPatches
 
 	private static ToggleButtonBehaviour InstantiateButton()
 	{
-		var button = Object.Instantiate(_buttonPrefab, _popUp.transform);
+		var button = Object.Instantiate(_buttonPrefab!, _popUp!.transform);
 		button.onState = false;
 		button.gameObject.SetActive(true);
 		return button;

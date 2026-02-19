@@ -22,6 +22,9 @@ public static class VoiceChatPatches
 	private static bool _speakerMuted;
 	private static bool _micMuted;
 
+	public static bool IsSpeakerMuted => _speakerMuted;
+
+
 	// ─── 同步节流：只有设置发生变化时才同步，而非定时轮询 ─────────────────────
 	private static VoiceChatRoomSettings? _lastSentSettings;
 
@@ -186,7 +189,7 @@ public static class VoiceChatPatches
 		{
 			Texture2D texture = new Texture2D(2, 2, TextureFormat.ARGB32, true);
 			Assembly assembly = Assembly.GetExecutingAssembly();
-			Stream stream = assembly.GetManifestResourceStream(path);
+			Stream? stream = assembly.GetManifestResourceStream(path);
 			if (stream == null) return null!;
 			var length = stream.Length;
 			var byteTexture = new Il2CppStructArray<byte>(length);

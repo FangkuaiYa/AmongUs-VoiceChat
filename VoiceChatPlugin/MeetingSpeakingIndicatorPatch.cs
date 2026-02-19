@@ -55,19 +55,6 @@ public static class MeetingSpeakingIndicatorPatch
 		CleanupStale(aliveIndicators);
 	}
 
-	[HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.OnDestroy))]
-	private static class MeetingHudDestroyPatch
-	{
-		private static void Postfix()
-		{
-			foreach (var obj in Indicators.Values)
-			{
-				if (obj != null) Object.Destroy(obj.gameObject);
-			}
-			Indicators.Clear();
-		}
-	}
-
 	private static List<string> CollectMissingPluginPlayerNames(MeetingHud hud, HashSet<byte> vcInstalledPlayers)
 	{
 		var names = new List<string>();
@@ -83,6 +70,20 @@ public static class MeetingSpeakingIndicatorPatch
 		}
 		return names;
 	}
+
+	[HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.OnDestroy))]
+	private static class MeetingHudDestroyPatch
+	{
+		private static void Postfix()
+		{
+			foreach (var obj in Indicators.Values)
+			{
+				if (obj != null) Object.Destroy(obj.gameObject);
+			}
+			Indicators.Clear();
+		}
+	}
+
 
 	private static TextMeshPro GetOrCreateIndicator(PlayerVoteArea state)
 	{

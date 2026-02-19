@@ -28,7 +28,7 @@ public class VoiceChatRoom
 	public void RemoveVirtualSpeaker(IVoiceComponent c) => _virtualSpeakers.Remove(c);
 
 	public bool UsingMicrophone => _interstellar.Microphone != null;
-	public float LocalMicLevel => 0f; // TODO: expose via LevelMeterRouter.GlobalLevel if available
+	public float LocalMicLevel => 0f;
 	public bool Mute => _interstellar.Mute;
 	public int SampleRate => _interstellar.SampleRate;
 
@@ -166,7 +166,7 @@ public class VoiceChatRoom
 		catch (Exception ex)
 		{
 			VoiceChatPluginMain.Logger.LogError($"[VC] Exception while setting microphone to '{deviceName}': {ex.Message}");
-			_interstellar.Microphone = null; // Ensure no invalid object is used
+			_interstellar.Microphone = null;
 		}
 	}
 
@@ -215,7 +215,6 @@ public class VoiceChatRoom
 		var inMeeting = MeetingHud.Instance != null || ExileController.Instance != null;
 		var inGame = ShipStatus.Instance != null;
 
-		// Optional per-frame check for microphone and speaker validity (avoid frequent logging)
 		if (_interstellar.Microphone == null)
 			VoiceChatPluginMain.Logger.LogWarning("[VC] Microphone is null, cannot capture audio.");
 		if (_interstellar.Speaker == null)

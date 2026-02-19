@@ -1,5 +1,6 @@
 ﻿using HarmonyLib;
 using TMPro;
+using System.Linq;
 using VoiceChatPlugin.VoiceChat;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -14,44 +15,61 @@ namespace VoiceChatPlugin
 		private static readonly Vector3 SpeakingDistanceFromEdge = new(0.5f, 0.11f, 0f);
 		private static PingTracker? _speakingTracker;
 		private static AspectPosition? _speakingAspect;
-		private static string _baseText = string.Empty;
-		private static bool _baseCaptured;
 
 		static void Postfix(PingTracker __instance)
 		{
-			if (__instance == null || __instance.text == null)
+			if (__instance?.text == null)
 				return;
 
 			if (_speakingTracker == null || _speakingTracker.gameObject == null)
 				CreateSpeakingTracker(__instance);
-			if (_speakingTracker == null || _speakingTracker.text == null)
+			if (_speakingTracker?.text == null)
 				return;
 
-			if (!_baseCaptured)
+			var tracker = _speakingTracker;
+			if (VoiceChatPatches.IsSpeakerMuted)
 			{
-				_baseText = __instance.text.text;
-				_baseCaptured = true;
+				tracker.gameObject.SetActive(true);
+				tracker.text.text = string.Empty;
+				return;
 			}
 
-			var isStarted = AmongUsClient.Instance != null && AmongUsClient.Instance.GameState == InnerNet.InnerNetClient.GameStates.Started;
 			var room = VoiceChatRoom.Current;
 			if (room == null)
 			{
-				_speakingTracker.gameObject.SetActive(false);
+				tracker.gameObject.SetActive(false);
 				return;
 			}
 
 			List<string> speakers = new();
+			HashSet<byte> vcInstalledPlayers = new();
 			foreach (var client in room.AllClients)
 			{
+				if (client.PlayerId != byte.MaxValue)
+					vcInstalledPlayers.Add(client.PlayerId);
 				if (client.Level > SpeakingThreshold)
 					speakers.Add(client.PlayerName);
 			}
 
-			_speakingTracker.gameObject.SetActive(true);
-			_speakingTracker.text.text = speakers.Count > 0
-				?"<color=#00FF00FF>Speaking: " + string.Join(", ", speakers) + "</color>"
-				: "";
+			if (PlayerControl.LocalPlayer && room.LocalMicLevel > SpeakingThreshold)
+				speakers.Add(PlayerControl.LocalPlayer.Data?.PlayerName ?? PlayerControl.LocalPlayer.name);
+
+			List<string> noVcPlayers = new();
+			foreach (var player in PlayerControl.AllPlayerControls)
+			{
+				if (!player || player.Data == null) continue;
+				if (!vcInstalledPlayers.Contains(player.PlayerId))
+					noVcPlayers.Add(player.Data.PlayerName);
+			}
+
+			string speakingText = speakers.Count > 0
+				? "<color=#00FF00FF>Speaking: " + string.Join(", ", speakers.Distinct()) + "</color>"
+				: string.Empty;
+			string missingText = "<color=#FFD35AFF>No VC: " + (noVcPlayers.Count > 0 ? string.Join(", ", noVcPlayers.Distinct()) : "-") + "</color>";
+			tracker.gameObject.SetActive(true);
+			tracker.text.text = string.IsNullOrEmpty(speakingText)
+				? missingText
+				: speakingText + "\n" + missingText;
 
 			if (_speakingAspect != null)
 			{
@@ -74,9 +92,7 @@ namespace VoiceChatPlugin
 				_speakingTracker.text.enableWordWrapping = false;
 			}
 
-			_speakingAspect = speakingObject.GetComponent<AspectPosition>();
-			if (_speakingAspect == null)
-				_speakingAspect = speakingObject.AddComponent<AspectPosition>();
+			_speakingAspect = speakingObject.GetComponent<AspectPosition>() ?? speakingObject.AddComponent<AspectPosition>();
 			_speakingAspect.Alignment = SpeakingAnchor;
 			_speakingAspect.DistanceFromEdge = SpeakingDistanceFromEdge;
 			_speakingAspect.AdjustPosition();
