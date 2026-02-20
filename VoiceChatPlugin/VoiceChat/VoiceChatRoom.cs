@@ -9,27 +9,27 @@ public class VoiceChatRoom
 {
 	public static VoiceChatRoom? Current { get; private set; }
 
-	private readonly VCRoom              _interstellar;
+	private readonly VCRoom _interstellar;
 	private readonly VolumeRouter.Property _masterVolumeProperty;
 
-	private readonly StereoRouter     _imager;
-	private readonly VolumeRouter     _normalVolume, _ghostVolume, _radioVolume, _clientVolume;
+	private readonly StereoRouter _imager;
+	private readonly VolumeRouter _normalVolume, _ghostVolume, _radioVolume, _clientVolume;
 	private readonly LevelMeterRouter _levelMeter;
 
 	private readonly Dictionary<int, VCPlayer> _clients = new();
 	public IEnumerable<VCPlayer> AllClients => _clients.Values;
 
-	private readonly List<IVoiceComponent> _virtualMics     = new();
+	private readonly List<IVoiceComponent> _virtualMics = new();
 	private readonly List<IVoiceComponent> _virtualSpeakers = new();
-	public void AddVirtualMicrophone(IVoiceComponent c)    => _virtualMics.Add(c);
-	public void AddVirtualSpeaker(IVoiceComponent c)       => _virtualSpeakers.Add(c);
+	public void AddVirtualMicrophone(IVoiceComponent c) => _virtualMics.Add(c);
+	public void AddVirtualSpeaker(IVoiceComponent c) => _virtualSpeakers.Add(c);
 	public void RemoveVirtualMicrophone(IVoiceComponent c) => _virtualMics.Remove(c);
-	public void RemoveVirtualSpeaker(IVoiceComponent c)    => _virtualSpeakers.Remove(c);
+	public void RemoveVirtualSpeaker(IVoiceComponent c) => _virtualSpeakers.Remove(c);
 
-	public bool  UsingMicrophone => _interstellar.Microphone != null;
-	public float LocalMicLevel   => _localMicMeter?.Level ?? 0f;
-	public bool  Mute            => _interstellar.Mute;
-	public int   SampleRate      => _interstellar.SampleRate;
+	public bool UsingMicrophone => _interstellar.Microphone != null;
+	public float LocalMicLevel => _localMicMeter?.Level ?? 0f;
+	public bool Mute => _interstellar.Mute;
+	public int SampleRate => _interstellar.SampleRate;
 
 	private LevelMeterRouter.Property? _localMicMeter;
 
@@ -61,23 +61,23 @@ public class VoiceChatRoom
 	// ── Constructor ────────────────────────────────────────────────────
 	private VoiceChatRoom(string region, string roomCode)
 	{
-		SimpleRouter   source   = new();
+		SimpleRouter source = new();
 		SimpleEndpoint endpoint = new();
 
-		_imager       = new StereoRouter();
+		_imager = new StereoRouter();
 		_normalVolume = new VolumeRouter();
-		_ghostVolume  = new VolumeRouter();
-		_radioVolume  = new VolumeRouter();
+		_ghostVolume = new VolumeRouter();
+		_radioVolume = new VolumeRouter();
 		_clientVolume = new VolumeRouter();
-		_levelMeter   = new LevelMeterRouter();
+		_levelMeter = new LevelMeterRouter();
 
-		FilterRouter    ghostLowpass  = FilterRouter.CreateLowPassFilter(1900f, 2f);
-		ReverbRouter    ghostReverb1  = new(53,  0.7f, 0.2f) { IsGlobalRouter = true };
-		ReverbRouter    ghostReverb2  = new(173, 0.4f, 0.6f) { IsGlobalRouter = true };
-		FilterRouter    radioHighpass = FilterRouter.CreateHighPassFilter(650f, 3.2f);
-		FilterRouter    radioLowpass  = FilterRouter.CreateLowPassFilter(800f, 2.1f);
+		FilterRouter ghostLowpass = FilterRouter.CreateLowPassFilter(1900f, 2f);
+		ReverbRouter ghostReverb1 = new(53, 0.7f, 0.2f) { IsGlobalRouter = true };
+		ReverbRouter ghostReverb2 = new(173, 0.4f, 0.6f) { IsGlobalRouter = true };
+		FilterRouter radioHighpass = FilterRouter.CreateHighPassFilter(650f, 3.2f);
+		FilterRouter radioLowpass = FilterRouter.CreateLowPassFilter(800f, 2.1f);
 		DistortionFilter radioDistort = new() { IsGlobalRouter = true, DefaultThreshold = 0.55f };
-		VolumeRouter    masterRouter  = new() { IsGlobalRouter = true };
+		VolumeRouter masterRouter = new() { IsGlobalRouter = true };
 
 		source.Connect(_clientVolume);
 		_clientVolume.Connect(_imager);
@@ -148,10 +148,10 @@ public class VoiceChatRoom
 
 	// ── Device control ─────────────────────────────────────────────────
 	public void SetMasterVolume(float v) => _masterVolumeProperty.Volume = v;
-	public void SetMicVolume(float v)    => _interstellar.Microphone?.SetVolume(v);
-	public void SetLoopBack(bool lb)     => _interstellar.SetLoopBack(lb);
-	public void SetMute(bool mute)       => _interstellar.SetMute(mute);
-	public void ToggleMute()             => SetMute(!Mute);
+	public void SetMicVolume(float v) => _interstellar.Microphone?.SetVolume(v);
+	public void SetLoopBack(bool lb) => _interstellar.SetLoopBack(lb);
+	public void SetMute(bool mute) => _interstellar.SetMute(mute);
+	public void ToggleMute() => SetMute(!Mute);
 
 	public void SetMicrophone(string deviceName)
 	{
@@ -176,7 +176,7 @@ public class VoiceChatRoom
 #if ANDROID
 	// Android：用 ManualSpeaker 配合 Unity AudioSource 播放
 	private UnityEngine.AudioSource? _androidAudioSource;
-	private ManualSpeaker?           _androidSpeaker;
+	private ManualSpeaker? _androidSpeaker;
 
 	private void SetupAndroidSpeaker()
 	{
@@ -187,14 +187,13 @@ public class VoiceChatRoom
 			_androidAudioSource = go.AddComponent<UnityEngine.AudioSource>();
 			_androidAudioSource.spatialBlend = 0f;
 
-			_androidSpeaker = new ManualSpeaker();
+			_androidSpeaker = new ManualSpeaker(onClosed: null);
+
+			// IL2CPP 环境下无法用委托包装 AudioClip 流式回调；
+			// 用 OnAudioFilterRead MonoBehaviour 每帧拉取 ManualSpeaker 的音频数据。
 			int sr = _interstellar.SampleRate;
-			var clip = UnityEngine.AudioClip.Create("VCAudio",
-				sr / 2, 2, sr, true,
-				pcm => ((NAudio.Wave.ISampleProvider)_androidSpeaker!).Read(pcm, 0, pcm.Length));
-			_androidAudioSource.clip = clip;
-			_androidAudioSource.loop = true;
-			_androidAudioSource.Play();
+			var puller = _androidAudioSource.gameObject.AddComponent<VCAndroidAudioPuller>();
+			puller.Init(_androidSpeaker, sr);
 
 			_interstellar.Speaker = _androidSpeaker;
 			VoiceChatPluginMain.Logger.LogInfo("[VC] Android speaker set up.");
@@ -206,14 +205,14 @@ public class VoiceChatRoom
 	}
 
 	// Android mic 推送（每帧调用）
-	private string?  _androidMicDevice;
+	private string? _androidMicDevice;
 	private UnityEngine.AudioClip? _androidMicClip;
-	private int      _androidMicLastPos;
+	private int _androidMicLastPos;
 
 	public void StartAndroidMic(string device = "")
 	{
 		_androidMicDevice = device;
-		_androidMicClip   = UnityEngine.Microphone.Start(device, true, 1, 48000);
+		_androidMicClip = UnityEngine.Microphone.Start(device, true, 1, 48000);
 		_androidMicLastPos = 0;
 	}
 
@@ -268,7 +267,7 @@ public class VoiceChatRoom
 			_commsSabActive = CheckCommsSabotage();
 		}
 
-		var localPlayer  = PlayerControl.LocalPlayer;
+		var localPlayer = PlayerControl.LocalPlayer;
 		Vector2? listenerPos = localPlayer ? (Vector2)localPlayer.transform.position : null;
 		bool localInVent = localPlayer != null && localPlayer.inVent;
 
@@ -285,9 +284,9 @@ public class VoiceChatRoom
 			}
 		}
 
-		bool inLobby   = LobbyBehaviour.Instance != null;
+		bool inLobby = LobbyBehaviour.Instance != null;
 		bool inMeeting = MeetingHud.Instance != null || ExileController.Instance != null;
-		bool inGame    = ShipStatus.Instance != null;
+		bool inGame = ShipStatus.Instance != null;
 
 		foreach (var client in _clients.Values)
 		{
@@ -330,7 +329,7 @@ public class VoiceChatRoom
 	}
 
 	// ── Profile ────────────────────────────────────────────────────────
-	private byte   _lastId   = byte.MaxValue;
+	private byte _lastId = byte.MaxValue;
 	private string _lastName = null!;
 
 	private void TryUpdateLocalProfile() => UpdateLocalProfile(false);
@@ -341,7 +340,7 @@ public class VoiceChatRoom
 		if (!lp) return;
 		if (always || lp.PlayerId != _lastId || lp.name != _lastName)
 		{
-			_lastId   = lp.PlayerId;
+			_lastId = lp.PlayerId;
 			_lastName = lp.name;
 			_interstellar.UpdateProfile(_lastName, _lastId);
 		}
