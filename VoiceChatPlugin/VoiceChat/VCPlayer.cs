@@ -48,7 +48,11 @@ public class VCPlayer
 		MuteAll();
 	}
 
-	public void ResetMapping() => _mappedPlayer = null;
+	public void ResetMapping()
+	{
+		_mappedPlayer = null;
+		MuteAll(); // 清除旧音量状态，防止上一局残留
+	}
 
 	private void CheckMapping()
 	{

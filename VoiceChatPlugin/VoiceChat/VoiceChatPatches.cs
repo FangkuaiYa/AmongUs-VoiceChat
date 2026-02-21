@@ -132,6 +132,25 @@ public static class VoiceChatPatches
 		VoiceChatRoom.CloseCurrentRoom();
 	}
 
+	// ── 新一局游戏开始（角色分配）：重置所有映射，防止上一局缓存串麦 ──
+	[HarmonyPostfix, HarmonyPatch(typeof(IntroCutscene), nameof(IntroCutscene.CoBegin))]
+	static void IntroCutscene_Begin_Post()
+	{
+		if (VoiceChatRoom.Current == null) return;
+		foreach (var client in VoiceChatRoom.Current.AllClients)
+			client.ResetMapping();
+		VoiceChatPluginMain.Logger.LogInfo("[VC] IntroCutscene: all client mappings reset for new game.");
+	}
+
+	// ── 游戏结束结算界面：Rejoin 确保房间状态干净，等待下一局 ──────
+	[HarmonyPostfix, HarmonyPatch(typeof(EndGameManager), nameof(EndGameManager.Start))]
+	static void EndGameManager_Post()
+	{
+		if (VoiceChatRoom.Current == null) return;
+		VoiceChatRoom.Current.Rejoin();
+		VoiceChatPluginMain.Logger.LogInfo("[VC] Game ended: VC room rejoined, mappings cleared.");
+	}
+
 	[HarmonyPostfix, HarmonyPatch(typeof(KeyboardJoystick), nameof(KeyboardJoystick.Update))]
 	static void KeyboardUpdate_Post()
 	{
