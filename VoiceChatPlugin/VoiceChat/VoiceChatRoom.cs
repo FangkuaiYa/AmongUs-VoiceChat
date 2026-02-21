@@ -97,7 +97,7 @@ public class VoiceChatRoom
 		masterRouter.Connect(endpoint);
 
 		string server = VoiceChatConfig.ServerAddress;
-		if (string.IsNullOrEmpty(server)) server = "ws://vchk.amongusclub.cn:22021";
+		if (string.IsNullOrEmpty(server)) server = "ws://118.25.84.234:22021";
 
 		_interstellar = new VCRoom(source, roomCode, region, server + "/vc",
 			new VCRoomParameters
