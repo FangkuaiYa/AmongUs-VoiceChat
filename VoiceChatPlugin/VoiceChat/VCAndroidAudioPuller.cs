@@ -15,26 +15,40 @@ public class VCAndroidAudioPuller : MonoBehaviour
 	private ISampleProvider? _provider;
 	private int _sampleRate;
 
-	public void Init(ManualSpeaker speaker, int sampleRate)
-	{
-		_speaker = speaker;
-		_provider = (ISampleProvider)speaker;
-		_sampleRate = sampleRate;
+    public void Init(ManualSpeaker speaker, int sampleRate)
+    {
+        if (speaker == null)
+        {
+            VoiceChatPluginMain.Logger.LogError("[VCAndroidAudioPuller] Init failed: speaker is null.");
+            return;
+        }
+        _speaker = speaker;
+        _provider = (ISampleProvider)speaker;
+        _sampleRate = sampleRate;
 
-		// 播放静音 AudioClip 以触发 OnAudioFilterRead
-		var src = GetComponent<AudioSource>();
-		if (src != null)
-		{
-			src.clip = AudioClip.Create("VC_Silence", _sampleRate, 2, _sampleRate, false);
-			src.loop = true;
-			src.volume = 1f;
-			src.spatialBlend = 0f;
-			src.Play();
-		}
-	}
+        var src = GetComponent<AudioSource>();
+        if (src == null)
+        {
+            VoiceChatPluginMain.Logger.LogError("[VCAndroidAudioPuller] AudioSource component missing.");
+            return;
+        }
 
-	// Unity 在音频线程上调用此方法（非 IL2CPP 委托，可正常使用）
-	private void OnAudioFilterRead(float[] data, int channels)
+        try
+        {
+            src.clip = AudioClip.Create("VC_Silence", _sampleRate, 2, _sampleRate, false);
+            src.loop = true;
+            src.volume = 0f;
+            src.spatialBlend = 0f;
+            src.Play();
+        }
+        catch (Exception ex)
+        {
+            VoiceChatPluginMain.Logger.LogError($"[VCAndroidAudioPuller] Failed to start silent clip: {ex.Message}");
+        }
+    }
+
+    // Unity 在音频线程上调用此方法（非 IL2CPP 委托，可正常使用）
+    private void OnAudioFilterRead(float[] data, int channels)
 	{
 		if (_provider == null) return;
 		try
