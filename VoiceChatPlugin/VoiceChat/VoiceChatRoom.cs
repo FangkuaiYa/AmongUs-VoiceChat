@@ -138,8 +138,9 @@ public class VoiceChatRoom
 		SetMicrophone(VoiceChatConfig.MicrophoneDevice);
 
 #if ANDROID
-		// Android：创建 ManualSpeaker，由 Unity AudioSource 驱动
-		SetupAndroidSpeaker();
+		// Android：延迟初始化扬声器，避免刚进房间时音频系统尚未就绪导致闪退
+		_androidSpeakerSetupPending = true;
+		_androidSpeakerSetupDelay = 1.0f;
 #else
 		SetSpeaker(VoiceChatConfig.SpeakerDevice);
 #endif
@@ -159,6 +160,7 @@ public class VoiceChatRoom
 		{
 #if ANDROID
 			_interstellar.Microphone = new ManualMicrophone();
+			StartAndroidMic(deviceName);
 #else
 			_interstellar.Microphone = new WindowsMicrophone(deviceName);
 #endif
@@ -175,14 +177,26 @@ public class VoiceChatRoom
 
 #if ANDROID
 	// Android：用 ManualSpeaker 配合 Unity AudioSource 播放
+	private UnityEngine.GameObject? _androidSpeakerGo;
 	private UnityEngine.AudioSource? _androidAudioSource;
 	private ManualSpeaker? _androidSpeaker;
+	private bool _androidSpeakerSetupPending;
+	private float _androidSpeakerSetupDelay;
 
     private void SetupAndroidSpeaker()
     {
         try
         {
+            if (_androidSpeakerGo != null)
+            {
+                UnityEngine.Object.Destroy(_androidSpeakerGo);
+                _androidSpeakerGo = null;
+                _androidAudioSource = null;
+                _androidSpeaker = null;
+            }
+
             var go = new UnityEngine.GameObject("VC_AndroidSpeaker");
+            _androidSpeakerGo = go;
             UnityEngine.Object.DontDestroyOnLoad(go);
 
             _androidAudioSource = go.AddComponent<UnityEngine.AudioSource>();
@@ -200,6 +214,7 @@ public class VoiceChatRoom
             {
                 VoiceChatPluginMain.Logger.LogError("[VC] Failed to create ManualSpeaker for Android.");
                 UnityEngine.Object.Destroy(go);
+                _androidSpeakerGo = null;
                 _androidAudioSource = null;
                 return;
             }
@@ -210,6 +225,7 @@ public class VoiceChatRoom
             {
                 VoiceChatPluginMain.Logger.LogError("[VC] Failed to add VCAndroidAudioPuller component.");
                 UnityEngine.Object.Destroy(go);
+                _androidSpeakerGo = null;
                 _androidAudioSource = null;
                 _androidSpeaker = null;
                 return;
@@ -243,27 +259,48 @@ public class VoiceChatRoom
         catch (Exception ex)
         {
             VoiceChatPluginMain.Logger.LogError($"[VC] Android speaker setup failed catastrophically: {ex.Message}");
+            if (_androidSpeakerGo != null)
+            {
+                UnityEngine.Object.Destroy(_androidSpeakerGo);
+                _androidSpeakerGo = null;
+            }
             _androidAudioSource = null;
             _androidSpeaker = null;
         }
     }
 
     // Android mic 推送（每帧调用）
-    private string? _androidMicDevice;
+    private string _androidMicDevice = string.Empty;
 	private UnityEngine.AudioClip? _androidMicClip;
 	private int _androidMicLastPos;
 
 	public void StartAndroidMic(string device = "")
 	{
-		_androidMicDevice = device;
-		_androidMicClip = UnityEngine.Microphone.Start(device, true, 1, 48000);
-		_androidMicLastPos = 0;
+		if (!UnityEngine.Application.HasUserAuthorization(UnityEngine.UserAuthorization.Microphone))
+		{
+			VoiceChatPluginMain.Logger.LogWarning("[VC] Microphone permission not granted on Android, skipping mic capture.");
+			_androidMicDevice = string.Empty;
+			_androidMicClip = null;
+			return;
+		}
+
+		_androidMicDevice = device ?? string.Empty;
+		try
+		{
+			_androidMicClip = UnityEngine.Microphone.Start(_androidMicDevice, true, 1, 48000);
+			_androidMicLastPos = 0;
+		}
+		catch (Exception ex)
+		{
+			VoiceChatPluginMain.Logger.LogError($"[VC] Android microphone start failed: {ex.Message}");
+			_androidMicClip = null;
+			_androidMicDevice = string.Empty;
+		}
 	}
 
 	private void PushAndroidMicData()
 	{
-        if (string.IsNullOrEmpty(_androidMicDevice) ||
-        _androidMicClip == null ||
+        if (_androidMicClip == null ||
         _interstellar?.Microphone is not ManualMicrophone mm)
         {
             return;
@@ -306,7 +343,17 @@ public class VoiceChatRoom
         TryUpdateLocalProfile();
 
 #if ANDROID
-        if (_androidMicDevice != null && _androidMicClip != null && _interstellar.Microphone is ManualMicrophone mm)
+        if (_androidSpeakerSetupPending)
+        {
+            _androidSpeakerSetupDelay -= Time.deltaTime;
+            if (_androidSpeakerSetupDelay <= 0f)
+            {
+                _androidSpeakerSetupPending = false;
+                SetupAndroidSpeaker();
+            }
+        }
+
+        if (_androidMicClip != null && _interstellar.Microphone is ManualMicrophone)
         {
             PushAndroidMicData();
         }
@@ -371,7 +418,34 @@ public class VoiceChatRoom
 		foreach (var c in _clients.Values) c.ResetMapping();
 	}
 
-	public void Close() => _interstellar.Disconnect();
+	public void Close()
+	{
+#if ANDROID
+		try
+		{
+			if (_androidMicClip != null && UnityEngine.Microphone.IsRecording(_androidMicDevice))
+			{
+				UnityEngine.Microphone.End(_androidMicDevice);
+			}
+		}
+		catch { }
+
+		_androidMicClip = null;
+		_androidMicDevice = string.Empty;
+		_androidSpeakerSetupPending = false;
+
+		if (_androidSpeakerGo != null)
+		{
+			UnityEngine.Object.Destroy(_androidSpeakerGo);
+			_androidSpeakerGo = null;
+		}
+
+		_androidAudioSource = null;
+		_androidSpeaker = null;
+#endif
+
+		_interstellar.Disconnect();
+	}
 
 	public bool TryGetPlayer(byte playerId, [MaybeNullWhen(false)] out VCPlayer player)
 	{
@@ -399,7 +473,7 @@ public class VoiceChatRoom
 		}
 	}
 
-	// ── Utilities ──────────────────────────────────────────────────────
+	// ── Utilities ─────────────────────────────────────────────────────
 	internal static float GetVolume(float dist, float maxDist)
 		=> Math.Clamp(1f - dist / maxDist, 0f, 1f);
 
