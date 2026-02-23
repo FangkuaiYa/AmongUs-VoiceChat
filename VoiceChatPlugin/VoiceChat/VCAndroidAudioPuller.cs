@@ -1,9 +1,8 @@
 #if ANDROID
-using BepInEx.Unity.IL2CPP.Utils.Collections;
 using Il2CppInterop.Runtime.Injection;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Interstellar.VoiceChat;
 using NAudio.Wave;
-using System.Collections;
 using UnityEngine;
 
 namespace VoiceChatPlugin.VoiceChat;
@@ -11,29 +10,15 @@ namespace VoiceChatPlugin.VoiceChat;
 /// <summary>
 /// Android IL2CPP 音频播放器。
 ///
-/// 核心问题：在 BepInEx IL2CPP 环境下，通过 ClassInjector 注入的 MonoBehaviour
-/// 不能依赖 Unity 的 OnAudioFilterRead 消息（Unity 原生层不知道这个托管方法）。
+/// 核心修复：在 IL2CPP 中，C# 强转 (ISampleProvider)manualSpeaker 会抛出
+/// InvalidCastException，必须使用 Il2Cpp 的 .TryCast&lt;T&gt;() 方法来获取接口代理。
 ///
-/// 解决方案（参考 Nebula 项目）：
-///   1. 用 ClassInjector.RegisterTypeInIl2Cpp 注册类，使 Unity 能识别该组件。
-///   2. 创建一个 PCM 静音 AudioClip 让 AudioSource 保持"播放"状态（触发音频线程）。
-///   3. 用 BepInEx 协程每帧从 ManualSpeaker (ISampleProvider) 拉取解码后的 PCM，
-///      写入一个 float[] 循环缓冲区，再通过 AudioSource.SetScheduledEndTime +
-///      动态创建短 AudioClip 拼接播放（"streaming via coroutine"）。
-///
-/// 但实测 Nebula 中更简单的方式是：完全不用 AudioSource，
-/// 而是将 ManualSpeaker 注册为 ISampleProvider，
-/// 通过 Unity 的 AudioSettings.GetDSPBufferSize 获取帧大小后，
-/// 在 LateUpdate 中用 AudioSource.clip.SetData 刷新环形缓冲。
-///
-/// 最终采用最稳健的方式：
-///   - 静态注册（静态构造函数中 Register），避免重复注册崩溃
-///   - 用固定大小环形 float[] 缓冲，每帧 LateUpdate 从 ISampleProvider 读取
-///   - AudioClip 设置为 streaming=true 的环形clip，用 AudioClip.SetData 覆写
+/// 音频驱动方式：每帧 LateUpdate 从 ManualSpeaker 拉取 PCM，
+/// 通过 AudioClip.SetData 写入环形 AudioClip，由 AudioSource 循环播放。
 /// </summary>
 public class VCAndroidAudioPuller : MonoBehaviour
 {
-    // ── 静态注册（只做一次）─────────────────────────────────────────
+    // ── 静态注册（仅一次）───────────────────────────────────────────
     private static bool _registered;
 
     public static void EnsureRegistered()
@@ -43,31 +28,30 @@ public class VCAndroidAudioPuller : MonoBehaviour
         try
         {
             ClassInjector.RegisterTypeInIl2Cpp<VCAndroidAudioPuller>();
-            VoiceChatPluginMain.Logger.LogInfo("[VCAndroidAudioPuller] Registered IL2CPP type.");
+            VoiceChatPluginMain.Logger.LogInfo("[VCAndroidAudioPuller] IL2CPP type registered.");
         }
         catch (Exception ex)
         {
-            VoiceChatPluginMain.Logger.LogWarning($"[VCAndroidAudioPuller] Register warning (may already be registered): {ex.Message}");
+            VoiceChatPluginMain.Logger.LogWarning(
+                $"[VCAndroidAudioPuller] Register warning (may already exist): {ex.Message}");
         }
     }
 
-    // ── 实例状态 ────────────────────────────────────────────────────
-    private ISampleProvider? _provider;
-    private AudioSource?     _audioSource;
-    private AudioClip?       _ringClip;
-    private float[]?         _readBuf;
-
-    private int _clipSamples;   // clip 总帧数（单声道）
-    private int _writePos;      // 当前写入位置（单声道帧索引）
-    private int _sampleRate;
-
-    // IL2CPP 要求注入类必须有接受 IntPtr 的构造函数
+    // IL2CPP 注入类必须提供此构造函数
     public VCAndroidAudioPuller(IntPtr ptr) : base(ptr) { }
 
-    /// <summary>
-    /// 由 VoiceChatRoom 调用，传入 ManualSpeaker 和采样率。
-    /// 必须在 Unity 主线程调用。
-    /// </summary>
+    // ── 实例字段 ────────────────────────────────────────────────────
+    private ISampleProvider? _provider;   // 通过 TryCast 获取的接口代理
+    private AudioSource?     _audioSource;
+    private AudioClip?       _ringClip;
+
+    private int      _clipSamples;        // 单声道帧数
+    private int      _writePos;           // 写入光标（单声道帧索引）
+    private int      _sampleRate;
+    private int      _channels;
+    private float[]? _readBuf;
+
+    /// <summary>由 VoiceChatRoom 在主线程调用。</summary>
     public void Init(ManualSpeaker speaker, int sampleRate)
     {
         if (speaker == null)
@@ -76,22 +60,27 @@ public class VCAndroidAudioPuller : MonoBehaviour
             return;
         }
 
-        _provider   = (ISampleProvider)speaker;
-        _sampleRate = sampleRate;
+        // ── 关键修复：用 TryCast 而非 C# 强转 ──────────────────────
+        _provider = speaker.TryCast<ISampleProvider>();
+        if (_provider == null)
+        {
+            VoiceChatPluginMain.Logger.LogError(
+                "[VCAndroidAudioPuller] TryCast<ISampleProvider> failed. " +
+                "ManualSpeaker may not expose ISampleProvider in this IL2CPP build.");
+            return;
+        }
 
-        // 2 声道输出，环形 clip 约 0.5 秒
-        const int channels    = 2;
-        _clipSamples          = sampleRate / 2;   // 每声道帧数
-        int totalFloats       = _clipSamples * channels;
-        _readBuf              = new float[totalFloats];
+        _sampleRate  = sampleRate;
+        _channels    = 2;
+        _clipSamples = sampleRate / 2;           // 约 0.5 秒环形缓冲
+        _readBuf     = new float[_clipSamples * _channels];
 
-        // 创建环形 AudioClip（非 streaming 版，用 SetData 刷新）
-        _ringClip = AudioClip.Create("VC_RingBuf", _clipSamples, channels, sampleRate, false);
+        _ringClip = AudioClip.Create("VC_RingBuf", _clipSamples, _channels, sampleRate, false);
 
         _audioSource = GetComponent<AudioSource>();
         if (_audioSource == null)
         {
-            VoiceChatPluginMain.Logger.LogError("[VCAndroidAudioPuller] No AudioSource found.");
+            VoiceChatPluginMain.Logger.LogError("[VCAndroidAudioPuller] Missing AudioSource.");
             return;
         }
 
@@ -103,10 +92,11 @@ public class VCAndroidAudioPuller : MonoBehaviour
         _audioSource.Play();
 
         _writePos = 0;
-        VoiceChatPluginMain.Logger.LogInfo($"[VCAndroidAudioPuller] Init OK: sampleRate={sampleRate} clipSamples={_clipSamples}");
+        VoiceChatPluginMain.Logger.LogInfo(
+            $"[VCAndroidAudioPuller] Init OK — sampleRate={sampleRate} clipSamples={_clipSamples}");
     }
 
-    // ── 每帧从 ISampleProvider 拉取新 PCM ──────────────────────────
+    // ── 每帧拉取 PCM 写入环形 AudioClip ────────────────────────────
     private void LateUpdate()
     {
         if (_provider == null || _audioSource == null || _ringClip == null || _readBuf == null)
@@ -114,61 +104,65 @@ public class VCAndroidAudioPuller : MonoBehaviour
 
         try
         {
-            // 每帧拉取约 20ms 的数据（避免 buffer 堆积）
-            int framesPerUpdate = _sampleRate / 50; // 20ms
-            int channels        = _ringClip.channels;
-            int floatCount      = framesPerUpdate * channels;
+            // 每帧约拉取 20ms 的数据
+            int framesPerUpdate = _sampleRate / 50;
+            int floatCount      = framesPerUpdate * _channels;
 
-            // 确保缓冲区够大
             if (_readBuf.Length < floatCount)
                 _readBuf = new float[floatCount];
 
-            int read = _provider.Read(_readBuf, 0, floatCount);
+            // 用 Il2CppStructArray 传递，避免 GC pinning 问题
+            var il2Buf = new Il2CppStructArray<float>(floatCount);
+            int read   = _provider.Read(il2Buf, 0, floatCount);
             if (read <= 0) return;
 
-            int framesRead = read / channels;
+            // 拷回托管数组
+            for (int i = 0; i < read; i++)
+                _readBuf[i] = il2Buf[i];
 
-            // 写入 clip（环形）
-            int remaining = _clipSamples - _writePos;
-            if (framesRead <= remaining)
-            {
-                // 一次性写入
-                var segment = new float[framesRead * channels];
-                Array.Copy(_readBuf, 0, segment, 0, framesRead * channels);
-                _ringClip.SetData(segment, _writePos);
-                _writePos = (_writePos + framesRead) % _clipSamples;
-            }
-            else
-            {
-                // 分两段写（跨越 clip 尾部）
-                int firstFrames  = remaining;
-                int secondFrames = framesRead - firstFrames;
-
-                var seg1 = new float[firstFrames * channels];
-                Array.Copy(_readBuf, 0, seg1, 0, firstFrames * channels);
-                _ringClip.SetData(seg1, _writePos);
-
-                var seg2 = new float[secondFrames * channels];
-                Array.Copy(_readBuf, firstFrames * channels, seg2, 0, secondFrames * channels);
-                _ringClip.SetData(seg2, 0);
-
-                _writePos = secondFrames;
-            }
+            WriteRing(read / _channels);
         }
         catch (Exception ex)
         {
-            VoiceChatPluginMain.Logger.LogError($"[VCAndroidAudioPuller] LateUpdate error: {ex.Message}");
+            VoiceChatPluginMain.Logger.LogError($"[VCAndroidAudioPuller] LateUpdate: {ex.Message}");
+            // 一次错误不停止，继续下一帧尝试
+        }
+    }
+
+    private void WriteRing(int framesRead)
+    {
+        if (_ringClip == null || _readBuf == null || framesRead <= 0) return;
+
+        int remaining = _clipSamples - _writePos;
+        if (framesRead <= remaining)
+        {
+            // 一段写入
+            var seg = new float[framesRead * _channels];
+            Array.Copy(_readBuf, 0, seg, 0, framesRead * _channels);
+            _ringClip.SetData(seg, _writePos);
+            _writePos = (_writePos + framesRead) % _clipSamples;
+        }
+        else
+        {
+            // 跨越 clip 尾部，分两段
+            int second = framesRead - remaining;
+
+            var seg1 = new float[remaining * _channels];
+            Array.Copy(_readBuf, 0, seg1, 0, remaining * _channels);
+            _ringClip.SetData(seg1, _writePos);
+
+            var seg2 = new float[second * _channels];
+            Array.Copy(_readBuf, remaining * _channels, seg2, 0, second * _channels);
+            _ringClip.SetData(seg2, 0);
+
+            _writePos = second;
         }
     }
 
     private void OnDestroy()
     {
         _provider = null;
-        if (_ringClip != null)
-        {
-            Destroy(_ringClip);
-            _ringClip = null;
-        }
+        if (_ringClip != null) { Destroy(_ringClip); _ringClip = null; }
     }
 }
 #endif
