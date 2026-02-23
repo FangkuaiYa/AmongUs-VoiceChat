@@ -1,6 +1,5 @@
 #if ANDROID
 using Il2CppInterop.Runtime.Injection;
-using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Interstellar.VoiceChat;
 using NAudio.Wave;
 using UnityEngine;
@@ -8,13 +7,9 @@ using UnityEngine;
 namespace VoiceChatPlugin.VoiceChat;
 
 /// <summary>
-/// Android IL2CPP 音频播放器。
-///
-/// 核心修复：在 IL2CPP 中，C# 强转 (ISampleProvider)manualSpeaker 会抛出
-/// InvalidCastException，必须使用 Il2Cpp 的 .TryCast&lt;T&gt;() 方法来获取接口代理。
-///
-/// 音频驱动方式：每帧 LateUpdate 从 ManualSpeaker 拉取 PCM，
-/// 通过 AudioClip.SetData 写入环形 AudioClip，由 AudioSource 循环播放。
+/// Android 音频播放器。
+/// Interstellar.dll 是纯托管程序集，ManualSpeaker 是普通 C# 类，
+/// 直接用 as ISampleProvider 转型即可，无需任何 IL2CPP TryCast。
 /// </summary>
 public class VCAndroidAudioPuller : MonoBehaviour
 {
@@ -33,7 +28,7 @@ public class VCAndroidAudioPuller : MonoBehaviour
         catch (Exception ex)
         {
             VoiceChatPluginMain.Logger.LogWarning(
-                $"[VCAndroidAudioPuller] Register warning (may already exist): {ex.Message}");
+                $"[VCAndroidAudioPuller] Register warning: {ex.Message}");
         }
     }
 
@@ -41,15 +36,15 @@ public class VCAndroidAudioPuller : MonoBehaviour
     public VCAndroidAudioPuller(IntPtr ptr) : base(ptr) { }
 
     // ── 实例字段 ────────────────────────────────────────────────────
-    private ISampleProvider? _provider;   // 通过 TryCast 获取的接口代理
+    private ISampleProvider? _provider;
     private AudioSource?     _audioSource;
     private AudioClip?       _ringClip;
+    private float[]?         _readBuf;
 
-    private int      _clipSamples;        // 单声道帧数
-    private int      _writePos;           // 写入光标（单声道帧索引）
-    private int      _sampleRate;
-    private int      _channels;
-    private float[]? _readBuf;
+    private int _clipSamples;
+    private int _writePos;
+    private int _sampleRate;
+    private int _channels;
 
     /// <summary>由 VoiceChatRoom 在主线程调用。</summary>
     public void Init(ManualSpeaker speaker, int sampleRate)
@@ -60,13 +55,13 @@ public class VCAndroidAudioPuller : MonoBehaviour
             return;
         }
 
-        // ── 关键修复：用 TryCast 而非 C# 强转 ──────────────────────
-        _provider = speaker.TryCast<ISampleProvider>();
+        // Interstellar.dll 是普通托管 dll，ManualSpeaker 实现了 ISampleProvider，
+        // 直接用 as 转型，不需要 TryCast。
+        _provider = speaker as ISampleProvider;
         if (_provider == null)
         {
             VoiceChatPluginMain.Logger.LogError(
-                "[VCAndroidAudioPuller] TryCast<ISampleProvider> failed. " +
-                "ManualSpeaker may not expose ISampleProvider in this IL2CPP build.");
+                "[VCAndroidAudioPuller] ManualSpeaker does not implement ISampleProvider.");
             return;
         }
 
@@ -96,7 +91,7 @@ public class VCAndroidAudioPuller : MonoBehaviour
             $"[VCAndroidAudioPuller] Init OK — sampleRate={sampleRate} clipSamples={_clipSamples}");
     }
 
-    // ── 每帧拉取 PCM 写入环形 AudioClip ────────────────────────────
+    // ── 每帧从 ISampleProvider 拉取 PCM 写入环形 AudioClip ──────────
     private void LateUpdate()
     {
         if (_provider == null || _audioSource == null || _ringClip == null || _readBuf == null)
@@ -111,21 +106,14 @@ public class VCAndroidAudioPuller : MonoBehaviour
             if (_readBuf.Length < floatCount)
                 _readBuf = new float[floatCount];
 
-            // 用 Il2CppStructArray 传递，避免 GC pinning 问题
-            var il2Buf = new Il2CppStructArray<float>(floatCount);
-            int read   = _provider.Read(il2Buf, 0, floatCount);
+            int read = _provider.Read(_readBuf, 0, floatCount);
             if (read <= 0) return;
-
-            // 拷回托管数组
-            for (int i = 0; i < read; i++)
-                _readBuf[i] = il2Buf[i];
 
             WriteRing(read / _channels);
         }
         catch (Exception ex)
         {
             VoiceChatPluginMain.Logger.LogError($"[VCAndroidAudioPuller] LateUpdate: {ex.Message}");
-            // 一次错误不停止，继续下一帧尝试
         }
     }
 
@@ -136,7 +124,6 @@ public class VCAndroidAudioPuller : MonoBehaviour
         int remaining = _clipSamples - _writePos;
         if (framesRead <= remaining)
         {
-            // 一段写入
             var seg = new float[framesRead * _channels];
             Array.Copy(_readBuf, 0, seg, 0, framesRead * _channels);
             _ringClip.SetData(seg, _writePos);
@@ -144,7 +131,6 @@ public class VCAndroidAudioPuller : MonoBehaviour
         }
         else
         {
-            // 跨越 clip 尾部，分两段
             int second = framesRead - remaining;
 
             var seg1 = new float[remaining * _channels];
