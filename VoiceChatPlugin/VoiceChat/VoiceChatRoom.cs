@@ -2,7 +2,7 @@ using Interstellar.Routing.Router;
 using Interstellar.VoiceChat;
 using System.Diagnostics.CodeAnalysis;
 using UnityEngine;
-using Object = UnityEngine.Object:
+using Object = UnityEngine.Object;
 
 namespace VoiceChatPlugin.VoiceChat;
 
