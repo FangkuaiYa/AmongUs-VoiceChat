@@ -2,7 +2,6 @@ using Interstellar.Routing.Router;
 using Interstellar.VoiceChat;
 using System.Diagnostics.CodeAnalysis;
 using UnityEngine;
-using Object = UnityEngine.Object;
 
 namespace VoiceChatPlugin.VoiceChat;
 
@@ -140,6 +139,18 @@ public class VoiceChatRoom
         // ── 麦克风初始化 ────────────────────────────────────────────
         SetMicrophone(VoiceChatConfig.MicrophoneDevice);
 
+#if ANDROID
+        // WindowsMicrophone 在 .ctor 内部自动调用 CreateIeeeFloatWaveFormat(48000, ch)。
+        // ManualMicrophone 没有此逻辑，WaveFormat 默认为 null，
+        // 导致 Interstellar 无法确定编码格式 → 对方永远听不到 Android 端声音。
+        // Unity Microphone.Start 采集的是单声道 48000Hz IeeeFloat，必须精确匹配。
+        if (_interstellar.Microphone is ManualMicrophone manualMic)
+        {
+            manualMic.WaveFormat = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 1);
+            VoiceChatPluginMain.Logger.LogInfo("[VC] ManualMicrophone WaveFormat: 48000Hz mono IeeeFloat.");
+        }
+#endif
+
         // ── 扬声器初始化 ────────────────────────────────────────────
 #if ANDROID
         // Android：立即创建 ManualSpeaker 并赋给 _interstellar，
@@ -206,6 +217,12 @@ public class VoiceChatRoom
             //   这一步必须在 GameObject 创建之前完成，
             //   确保 Interstellar 解码线程写入数据时 Speaker 不为 null。
             _androidSpeaker = new ManualSpeaker(onClosed: null);
+
+            // ManualSpeaker.WaveFormat 必须在赋值给 _interstellar.Speaker 之前设置。
+            // Interstellar 的解码器会查询 Speaker.WaveFormat.Channels 来决定输出声道数。
+            // 不设置 → WaveFormat = null → ISampleProvider.Read 输出 0 帧 → Android 无声。
+            // StereoRouter 存在 → 路由图输出是 2ch stereo，设置为 2ch。
+            _androidSpeaker.WaveFormat = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
             _interstellar.Speaker = _androidSpeaker;
             VoiceChatPluginMain.Logger.LogInfo("[VC] ManualSpeaker assigned to Interstellar.");
 
