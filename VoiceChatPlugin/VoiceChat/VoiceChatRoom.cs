@@ -1,5 +1,6 @@
 using Interstellar.Routing.Router;
 using Interstellar.VoiceChat;
+using NAudio.Wave;
 using System.Diagnostics.CodeAnalysis;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -140,17 +141,7 @@ public class VoiceChatRoom
         // ── 麦克风初始化 ────────────────────────────────────────────
         SetMicrophone(VoiceChatConfig.MicrophoneDevice);
 
-#if ANDROID
-        // WindowsMicrophone 在 .ctor 内部自动调用 CreateIeeeFloatWaveFormat(48000, ch)。
-        // ManualMicrophone 没有此逻辑，WaveFormat 默认为 null，
-        // 导致 Interstellar 无法确定编码格式 → 对方永远听不到 Android 端声音。
-        // Unity Microphone.Start 采集的是单声道 48000Hz IeeeFloat，必须精确匹配。
-        if (_interstellar.Microphone is ManualMicrophone manualMic)
-        {
-            manualMic.WaveFormat = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 1);
-            VoiceChatPluginMain.Logger.LogInfo("[VC] ManualMicrophone WaveFormat: 48000Hz mono IeeeFloat.");
-        }
-#endif
+// WaveFormat 由 Interstellar 内部 RTC 协商后自动注入，无需手动设置。
 
         // ── 扬声器初始化 ────────────────────────────────────────────
 #if ANDROID
@@ -219,11 +210,8 @@ public class VoiceChatRoom
             //   确保 Interstellar 解码线程写入数据时 Speaker 不为 null。
             _androidSpeaker = new ManualSpeaker(onClosed: null);
 
-            // ManualSpeaker.WaveFormat 必须在赋值给 _interstellar.Speaker 之前设置。
-            // Interstellar 的解码器会查询 Speaker.WaveFormat.Channels 来决定输出声道数。
-            // 不设置 → WaveFormat = null → ISampleProvider.Read 输出 0 帧 → Android 无声。
-            // StereoRouter 存在 → 路由图输出是 2ch stereo，设置为 2ch。
-            _androidSpeaker.WaveFormat = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
+            // WaveFormat 由 Interstellar 内部 RTC 协商后自动注入，无需手动设置。
+            // ManualSpeaker 没有公开的 WaveFormat setter，格式通过 ISpeakerContext 注入。
             _interstellar.Speaker = _androidSpeaker;
             VoiceChatPluginMain.Logger.LogInfo("[VC] ManualSpeaker assigned to Interstellar.");
 
@@ -237,7 +225,7 @@ public class VoiceChatRoom
 
             // ③ 添加拉取组件（已通过 ClassInjector 注册，可安全 AddComponent）
             var puller = _androidSpeakerGo.AddComponent<VCAndroidAudioPuller>();
-            puller.Init(_androidSpeaker, _interstellar.SampleRate);
+            puller.Init(_androidSpeaker);
 
             VoiceChatPluginMain.Logger.LogInfo("[VC] Android speaker setup complete.");
         }
@@ -279,15 +267,36 @@ public class VoiceChatRoom
         int cur = Microphone.GetPosition(_androidMicDevice);
         if (cur == _androidMicLastPos) return;
 
-        int count = cur > _androidMicLastPos
+        // count 是帧数（与声道无关的 per-channel sample 数）
+        int frames = cur > _androidMicLastPos
             ? cur - _androidMicLastPos
             : _androidMicClip.samples - _androidMicLastPos + cur;
-        if (count <= 0) return;
+        if (frames <= 0) return;
 
-        var buf = new float[count];
-        _androidMicClip.GetData(buf, _androidMicLastPos);
+        int ch = _androidMicClip.channels;
+        var raw = new float[frames * ch];
+        _androidMicClip.GetData(raw, _androidMicLastPos);
         _androidMicLastPos = cur;
-        mm.PushAudioData(buf);
+
+        // PushAudioData 内部期望单声道 48000Hz PCM。
+        // Unity Microphone 在 Android 某些设备上即使指定 1ch 也可能返回 2ch，
+        // 因此这里统一做下混：若是立体声则取左右声道平均值。
+        float[] mono;
+        if (ch == 1)
+        {
+            mono = raw;
+        }
+        else
+        {
+            mono = new float[frames];
+            for (int i = 0; i < frames; i++)
+            {
+                float sum = 0f;
+                for (int c = 0; c < ch; c++) sum += raw[i * ch + c];
+                mono[i] = sum / ch;
+            }
+        }
+        mm.PushAudioData(mono);
     }
 #else
     public void SetSpeaker(string deviceName)
