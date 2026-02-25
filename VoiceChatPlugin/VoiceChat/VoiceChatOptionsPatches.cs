@@ -105,19 +105,25 @@ public static class VoiceChatOptionsPatches
 		pb.OnClick.AddListener((Action)(() =>
 		{
 			if (_popUp == null) return;
+
+			// 先定位 _popUp，再刷新内容，最后关闭原来的选项菜单
+			// 顺序很重要：避免先关闭导致画面空白后 _popUp 才出现的闪烁
 			if (inst.transform.parent != null && inst.transform.parent == HudManager.Instance?.transform)
 			{
 				_popUp.transform.SetParent(HudManager.Instance.transform);
 				_popUp.transform.localPosition = new Vector3(0f, 0f, -860f);
+				_page = 0;
+				Refresh();
+				// ★ 在 Refresh 之后再关闭，避免两者同时不可见
 				inst.Close();
 			}
 			else
 			{
 				_popUp.transform.SetParent(null);
 				Object.DontDestroyOnLoad(_popUp);
+				_page = 0;
+				Refresh();
 			}
-			_page = 0;
-			Refresh();
 		}));
 	}
 
@@ -125,16 +131,18 @@ public static class VoiceChatOptionsPatches
 	private static void Refresh()
 	{
 		if (_popUp == null || _buttonPrefab == null) return;
-		_popUp.SetActive(false);
-		_popUp.SetActive(true);
 
-		// 清除旧内容
+		// ★ 不使用 SetActive(false)/true 循环，避免面板闪烁。
+		//   直接就地清除动态子节点，背景和关闭按钮保留不动。
 		for (int i = _popUp.transform.childCount - 1; i >= 0; i--)
 		{
 			var ch = _popUp.transform.GetChild(i).gameObject;
 			if (ch.name is "Background" or "CloseButton") continue;
 			Object.Destroy(ch);
 		}
+
+		// 确保面板处于显示状态（打开后第一次刷新时保证可见）
+		if (!_popUp.activeSelf) _popUp.SetActive(true);
 
 		RefreshDeviceCaches();
 
