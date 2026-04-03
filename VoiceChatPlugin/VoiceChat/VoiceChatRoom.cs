@@ -1,11 +1,10 @@
 using Concentus;
 using Hazel;
 using HarmonyLib;
-
 using VoiceChatPlugin.Audio;
-
 using NAudio.Wave;
 using UnityEngine;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System;
 using System.Linq;
@@ -19,27 +18,39 @@ namespace VoiceChatPlugin.VoiceChat;
 /// server via PlayerControl RPC ID 203.  No separate voice server is needed.
 ///
 /// Outgoing pipeline:
-///   WaveInEvent (PCM 48 kHz mono, 16-bit)
-///   -> Opus encoder (20 ms frames)
-///   -> RPC 203 broadcast (Hazel reliable UDP)
+///   WaveInEvent  (PCM 48 kHz mono, 16-bit, on WaveIn callback thread)
+///   -> Opus encode
+///   -> enqueue into _sendQueue  (thread-safe)
+///   -> dequeued on Unity main thread and sent via Hazel RPC
 ///
 /// Incoming pipeline:
-///   RPC 203 arrives
-///   -> Opus decoder
+///   RPC 203 arrives (on Hazel network thread)
+///   -> enqueue into _receiveQueue  (thread-safe)
+///   -> dequeued on Unity main thread in Update()
+///   -> Opus decode (per-client decoder, own float[] buffer)
 ///   -> AudioRoutingInstance.AddSamples()
-///   -> Interstellar routing graph (volume, stereo pan, ghost reverb, radio)
-///   -> WasapiOut (WASAPI shared mode)
+///   -> audio routing graph (volume, stereo, ghost reverb, radio)
+///   -> WasapiOut (WASAPI shared mode, own playback thread)
+///
+/// Threading model
+/// ───────────────
+///  • Unity main thread  : Update(), profile broadcast, RPC send
+///  • WaveIn thread      : OnMicDataAvailable()  – enqueues only
+///  • Hazel recv thread  : AudioRpcPatch.Postfix() – enqueues only
+///  • WasapiOut thread   : reads audio graph (AudioManager/ISampleProvider chain)
+///
+/// All mutable shared state (_clients, _decoders, _audioManager) is accessed
+/// exclusively on the Unity main thread.  Cross-thread communication uses
+/// ConcurrentQueue so no locks are needed in hot paths.
 /// </summary>
 public class VoiceChatRoom
 {
-    // RPC ID used for all voice-chat packets.
-    // Must not collide with VoiceChatRoomSettings (201) or any vanilla game RPC.
     internal const byte AudioRpcId = 203;
 
     // ── Singleton ──────────────────────────────────────────────────────────────
     public static VoiceChatRoom? Current { get; private set; }
 
-    // ── Interstellar audio routing graph ──────────────────────────────────────
+    // ── Audio routing graph (accessed only from Unity main thread + WasapiOut) ─
     private readonly AudioManager          _audioManager;
     private readonly VolumeRouter.Property _masterVolumeProperty;
 
@@ -47,11 +58,11 @@ public class VoiceChatRoom
     private readonly VolumeRouter     _normalVolume, _ghostVolume, _radioVolume, _clientVolume;
     private readonly LevelMeterRouter _levelMeter;
 
-    // ── Remote clients ─────────────────────────────────────────────────────────
-    // Key = Among Us ClientId (AmongUsClient.GetClientFromCharacter().Id)
+    // ── Remote clients – Unity main thread only ────────────────────────────────
     private readonly Dictionary<int, VCPlayer>     _clients  = new();
+    // Per-client decoders and per-client decode buffers to avoid sharing
     private readonly Dictionary<int, IOpusDecoder> _decoders = new();
-    private readonly float[] _decodeBuffer = new float[4096];
+    private readonly Dictionary<int, float[]>      _decodeBufs = new();
 
     public IEnumerable<VCPlayer> AllClients => _clients.Values;
 
@@ -63,12 +74,15 @@ public class VoiceChatRoom
     public void RemoveVirtualMicrophone(IVoiceComponent c) => _virtualMics.Remove(c);
     public void RemoveVirtualSpeaker(IVoiceComponent c)    => _virtualSpeakers.Remove(c);
 
-    // ── Microphone ─────────────────────────────────────────────────────────────
+    // ── Microphone (WaveIn thread writes; main thread reads _sendQueue) ────────
     private WaveInEvent?  _waveIn;
     private IOpusEncoder? _encoder;
+    private float[]       _pcmConvertBuf = null!;
     private readonly byte[] _encodeBuffer = new byte[4096];
-    private float[] _pcmConvertBuf = null!;
     private float _micVolume = 1f;
+
+    // Encoded packets queued from WaveIn thread, drained on main thread
+    private readonly ConcurrentQueue<byte[]> _sendQueue = new();
 
     public bool  UsingMicrophone => _waveIn != null;
     public float LocalMicLevel   => _localMicLevel;
@@ -78,6 +92,10 @@ public class VoiceChatRoom
 
     // ── Speaker ────────────────────────────────────────────────────────────────
     private WasapiOut? _waveOut;
+
+    // ── Incoming packet queue: Hazel thread -> main thread ─────────────────────
+    private readonly record struct IncomingPacket(int SenderId, byte PacketType, byte[] Data, byte PlayerId, string PlayerName);
+    private readonly ConcurrentQueue<IncomingPacket> _receiveQueue = new();
 
     // ── Comms sabotage cache ───────────────────────────────────────────────────
     private bool  _commsSabActive;
@@ -105,7 +123,7 @@ public class VoiceChatRoom
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Constructor – builds the Interstellar routing graph
+    // Constructor
     // ══════════════════════════════════════════════════════════════════════════
 
     private VoiceChatRoom()
@@ -152,19 +170,16 @@ public class VoiceChatRoom
         SetMicrophone(VoiceChatConfig.MicrophoneDevice);
         SetSpeaker(VoiceChatConfig.SpeakerDevice);
 
-        VoiceChatPluginMain.Logger.LogInfo("[VC] VoiceChatRoom constructed (Hazel transport, no external server).");
+        VoiceChatPluginMain.Logger.LogInfo("[VC] VoiceChatRoom constructed (Hazel transport).");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Device control
+    // Device control  (called from Unity main thread)
     // ══════════════════════════════════════════════════════════════════════════
 
     public void SetMasterVolume(float v) => _masterVolumeProperty.Volume = v;
 
-    public void SetMicVolume(float v)
-    {
-        _micVolume = Math.Clamp(v, 0f, 2f);
-    }
+    public void SetMicVolume(float v) => _micVolume = Math.Clamp(v, 0f, 2f);
 
     public void SetMute(bool mute) => Mute = mute;
     public void ToggleMute()       => SetMute(!Mute);
@@ -201,7 +216,7 @@ public class VoiceChatRoom
             _waveIn.StartRecording();
 
             VoiceChatPluginMain.Logger.LogInfo(
-                $"[VC] Mic set: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
+                $"[VC] Mic: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
         }
         catch (Exception ex)
         {
@@ -219,10 +234,10 @@ public class VoiceChatRoom
             _waveOut?.Dispose();
             _waveOut = null;
 
-            var endpoint = _audioManager.Endpoint;
-            if (endpoint == null)
+            var ep = _audioManager.Endpoint;
+            if (ep == null)
             {
-                VoiceChatPluginMain.Logger.LogError("[VC] Audio graph has no endpoint – speaker not started.");
+                VoiceChatPluginMain.Logger.LogError("[VC] Audio graph has no endpoint.");
                 return;
             }
 
@@ -242,11 +257,11 @@ public class VoiceChatRoom
                 NAudio.CoreAudioApi.Role.Multimedia);
 
             _waveOut = new WasapiOut(device, NAudio.CoreAudioApi.AudioClientShareMode.Shared, false, 50);
-            _waveOut.Init(endpoint);
+            _waveOut.Init(ep);
             _waveOut.Play();
 
             VoiceChatPluginMain.Logger.LogInfo(
-                $"[VC] Speaker set: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
+                $"[VC] Speaker: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
         }
         catch (Exception ex)
         {
@@ -256,13 +271,14 @@ public class VoiceChatRoom
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Outgoing: mic capture -> Opus -> RPC broadcast
+    // Outgoing: WaveIn thread → encode → enqueue (never touches AU client)
     // ══════════════════════════════════════════════════════════════════════════
 
     private void OnMicDataAvailable(object? sender, WaveInEventArgs e)
     {
+        // This runs on the WaveIn callback thread.
+        // MUST NOT call any Unity / IL2CPP / AmongUsClient methods here.
         if (Mute || _encoder == null) return;
-        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null) return;
 
         int samples = e.BytesRecorded / 2;
         if (_pcmConvertBuf == null || _pcmConvertBuf.Length != samples)
@@ -276,7 +292,7 @@ public class VoiceChatRoom
             float abs = s < 0 ? -s : s;
             if (abs > level) level = abs;
         }
-        _localMicLevel = level;
+        _localMicLevel = level;   // volatile write – safe
 
         try
         {
@@ -285,67 +301,48 @@ public class VoiceChatRoom
 
             var payload = new byte[encoded];
             Array.Copy(_encodeBuffer, payload, encoded);
-
-            // Packet type 0 = audio frame
-            var w = AmongUsClient.Instance.StartRpcImmediately(
-                PlayerControl.LocalPlayer.NetId, AudioRpcId, SendOption.Reliable, -1);
-            w.Write((byte)0);
-            w.WriteBytesAndSize(payload);
-            AmongUsClient.Instance.FinishRpcImmediately(w);
+            _sendQueue.Enqueue(payload);  // ConcurrentQueue – safe
         }
         catch (Exception ex)
         {
-            VoiceChatPluginMain.Logger.LogError($"[VC] Mic send error: {ex.Message}");
+            VoiceChatPluginMain.Logger.LogError($"[VC] Encode error: {ex.Message}");
         }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Incoming: RPC -> Opus decode -> audio graph
+    // Incoming: Hazel thread → enqueue only
     // ══════════════════════════════════════════════════════════════════════════
 
-    private void DispatchAudioFrame(int senderId, byte[] encoded)
+    // Called from AudioRpcPatch (Hazel network thread).
+    internal static void EnqueueAudioPacket(int senderId, byte[] encoded)
     {
-        if (!_decoders.TryGetValue(senderId, out var decoder))
-        {
-            decoder = AudioHelpers.GetOpusDecoder();
-            _decoders[senderId] = decoder;
-        }
-
-        int decoded = decoder.Decode(encoded, _decodeBuffer, _decodeBuffer.Length);
-        if (decoded <= 0) return;
-
-        if (!_clients.TryGetValue(senderId, out var player))
-        {
-            var instance = _audioManager.Generate(senderId);
-            player = new VCPlayer(this, instance,
-                _imager, _normalVolume, _ghostVolume, _radioVolume, _clientVolume, _levelMeter);
-            _clients[senderId] = player;
-            player.TryResolveFromClientId(senderId);
-            VoiceChatPluginMain.Logger.LogInfo($"[VC] New remote audio client {senderId}.");
-        }
-
-        player.AddSamples(_decodeBuffer, decoded);
+        Current?._receiveQueue.Enqueue(new IncomingPacket(senderId, 0, encoded, 0, ""));
     }
 
-    private void DispatchProfileUpdate(int senderId, byte playerId, string playerName)
+    internal static void EnqueueProfilePacket(int senderId, byte playerId, string playerName)
     {
-        if (_clients.TryGetValue(senderId, out var player))
-        {
-            player.UpdateProfile(playerId, playerName);
-            VoiceChatPluginMain.Logger.LogInfo(
-                $"[VC] Client {senderId}: playerId={playerId} name={playerName}");
-        }
+        Current?._receiveQueue.Enqueue(new IncomingPacket(senderId, 1, Array.Empty<byte>(), playerId, playerName));
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Per-frame Update
+    // Per-frame Update  (Unity main thread)
     // ══════════════════════════════════════════════════════════════════════════
 
     public void Update()
     {
+        // 1. Send any pending encoded audio frames via Hazel (main thread safe)
+        DrainSendQueue();
+
+        // 2. Process incoming packets (main thread only – modifies _clients/_decoders)
+        DrainReceiveQueue();
+
+        // 3. Prune disconnected clients
         PruneDisconnectedClients();
+
+        // 4. Broadcast local profile if changed
         TryUpdateLocalProfile();
 
+        // 5. Comms sabotage check (every 0.5 s)
         _commsSabCheckTimer -= Time.deltaTime;
         if (_commsSabCheckTimer <= 0f)
         {
@@ -353,6 +350,7 @@ public class VoiceChatRoom
             _commsSabActive     = CheckCommsSabotage();
         }
 
+        // 6. Per-client volume/pan decisions
         var localPlayer  = PlayerControl.LocalPlayer;
         Vector2? listenerPos = localPlayer ? (Vector2)localPlayer.transform.position : null;
         bool localInVent = localPlayer != null && localPlayer.inVent;
@@ -384,6 +382,98 @@ public class VoiceChatRoom
         }
     }
 
+    private void DrainSendQueue()
+    {
+        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null) return;
+
+        // Limit how many we send per frame to avoid spikes
+        const int maxPerFrame = 4;
+        int sent = 0;
+        while (sent < maxPerFrame && _sendQueue.TryDequeue(out var payload))
+        {
+            try
+            {
+                var w = AmongUsClient.Instance.StartRpcImmediately(
+                    PlayerControl.LocalPlayer.NetId, AudioRpcId, SendOption.Reliable, -1);
+                w.Write((byte)0);
+                w.WriteBytesAndSize(payload);
+                AmongUsClient.Instance.FinishRpcImmediately(w);
+                sent++;
+            }
+            catch (Exception ex)
+            {
+                VoiceChatPluginMain.Logger.LogError($"[VC] RPC send error: {ex.Message}");
+            }
+        }
+    }
+
+    private void DrainReceiveQueue()
+    {
+        // Process all pending incoming packets; runs on main thread only
+        const int maxPerFrame = 16;
+        int processed = 0;
+        while (processed < maxPerFrame && _receiveQueue.TryDequeue(out var pkt))
+        {
+            processed++;
+            if (pkt.PacketType == 0)
+                ProcessAudioFrame(pkt.SenderId, pkt.Data);
+            else if (pkt.PacketType == 1)
+                ProcessProfileUpdate(pkt.SenderId, pkt.PlayerId, pkt.PlayerName);
+        }
+    }
+
+    private void ProcessAudioFrame(int senderId, byte[] encoded)
+    {
+        if (!_decoders.TryGetValue(senderId, out var decoder))
+        {
+            decoder = AudioHelpers.GetOpusDecoder();
+            _decoders[senderId] = decoder;
+        }
+
+        // Each sender gets its own decode buffer – never shared
+        if (!_decodeBufs.TryGetValue(senderId, out var buf))
+        {
+            buf = new float[5760]; // max Opus frame at 48 kHz
+            _decodeBufs[senderId] = buf;
+        }
+
+        int decoded;
+        try
+        {
+            decoded = decoder.Decode(encoded, buf, buf.Length);
+        }
+        catch (Exception ex)
+        {
+            VoiceChatPluginMain.Logger.LogError($"[VC] Decode error client {senderId}: {ex.Message}");
+            return;
+        }
+        if (decoded <= 0) return;
+
+        if (!_clients.TryGetValue(senderId, out var player))
+        {
+            var instance = _audioManager.Generate(senderId);
+            player = new VCPlayer(this, instance,
+                _imager, _normalVolume, _ghostVolume, _radioVolume, _clientVolume, _levelMeter);
+            _clients[senderId] = player;
+            player.TryResolveFromClientId(senderId);
+            VoiceChatPluginMain.Logger.LogInfo($"[VC] New client {senderId}.");
+        }
+
+        // AddSamples writes to BufferedSampleProvider which uses CircularFloatBuffer (thread-safe).
+        // The WasapiOut thread will read from it concurrently; CircularFloatBuffer uses a lock.
+        player.AddSamples(buf, decoded);
+    }
+
+    private void ProcessProfileUpdate(int senderId, byte playerId, string playerName)
+    {
+        if (_clients.TryGetValue(senderId, out var player))
+        {
+            player.UpdateProfile(playerId, playerName);
+            VoiceChatPluginMain.Logger.LogInfo(
+                $"[VC] Client {senderId}: id={playerId} name={playerName}");
+        }
+    }
+
     private void PruneDisconnectedClients()
     {
         if (AmongUsClient.Instance == null) return;
@@ -400,6 +490,7 @@ public class VoiceChatRoom
         {
             _clients.Remove(id);
             _decoders.Remove(id);
+            _decodeBufs.Remove(id);
             _audioManager.Remove(id);
             VoiceChatPluginMain.Logger.LogInfo($"[VC] Client {id} pruned.");
         }
@@ -422,26 +513,41 @@ public class VoiceChatRoom
 
     public void Rejoin()
     {
+        // Drain queues so stale data from the old game doesn't bleed in
+        while (_sendQueue.TryDequeue(out _)) { }
+        while (_receiveQueue.TryDequeue(out _)) { }
+
         foreach (var id in _clients.Keys.ToList())
         {
             _audioManager.Remove(id);
             _decoders.Remove(id);
+            _decodeBufs.Remove(id);
         }
         _clients.Clear();
-        foreach (var c in _clients.Values) c.ResetMapping();
-        VoiceChatPluginMain.Logger.LogInfo("[VC] Rejoin: client state cleared.");
+        VoiceChatPluginMain.Logger.LogInfo("[VC] Rejoin: state cleared.");
     }
 
     public void Close()
     {
-        try { _waveIn?.StopRecording(); _waveIn?.Dispose(); } catch { }
+        // Stop mic first to prevent WaveIn thread from enqueueing after Close
+        try { _waveIn?.StopRecording(); } catch { }
+        try { _waveIn?.Dispose(); } catch { }
         _waveIn = null;
+
+        // Drain send queue (nothing will be sent after this)
+        while (_sendQueue.TryDequeue(out _)) { }
+        while (_receiveQueue.TryDequeue(out _)) { }
+
+        // Stop speaker before tearing down the audio graph
         try { _waveOut?.Stop(); _waveOut?.Dispose(); } catch { }
         _waveOut = null;
+
         _encoder?.Dispose();
         _encoder = null;
+
         _clients.Clear();
         _decoders.Clear();
+        _decodeBufs.Clear();
     }
 
     public bool TryGetPlayer(byte playerId, out VCPlayer? player)
@@ -453,7 +559,7 @@ public class VoiceChatRoom
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Local profile broadcast
+    // Local profile broadcast  (main thread)
     // ══════════════════════════════════════════════════════════════════════════
 
     private void TryUpdateLocalProfile() => UpdateLocalProfile(false);
@@ -470,7 +576,6 @@ public class VoiceChatRoom
         try
         {
             if (AmongUsClient.Instance == null) return;
-            // Packet type 1 = profile update
             var w = AmongUsClient.Instance.StartRpcImmediately(
                 PlayerControl.LocalPlayer.NetId, AudioRpcId, SendOption.Reliable, -1);
             w.Write((byte)1);
@@ -496,7 +601,7 @@ public class VoiceChatRoom
 
     internal record SpeakerCache(IVoiceComponent Speaker, float Volume, float Pan);
 
-    // ── Harmony patch: intercept incoming RPC 203 ──────────────────────────────
+    // ── Harmony patch: Hazel network thread – enqueue only ──────────────────────
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
     public static class AudioRpcPatch
     {
@@ -506,6 +611,7 @@ public class VoiceChatRoom
             if (callId != AudioRpcId) return;
             if (Current == null) return;
 
+            // Identify sender
             int senderId = -1;
             if (AmongUsClient.Instance != null)
             {
@@ -513,7 +619,7 @@ public class VoiceChatRoom
                 if (cl != null) senderId = cl.Id;
             }
             if (senderId < 0) return;
-            // Skip our own RPC echo
+            // Ignore our own echo
             if (AmongUsClient.Instance != null &&
                 senderId == AmongUsClient.Instance.ClientId) return;
 
@@ -522,20 +628,21 @@ public class VoiceChatRoom
                 byte packetType = reader.ReadByte();
                 if (packetType == 0)
                 {
+                    // Read the encoded bytes immediately on this thread (MessageReader is not thread-safe to defer)
                     byte[] encoded = reader.ReadBytesAndSize();
                     if (encoded != null && encoded.Length > 0)
-                        Current.DispatchAudioFrame(senderId, encoded);
+                        EnqueueAudioPacket(senderId, encoded);
                 }
                 else if (packetType == 1)
                 {
                     byte   pid  = reader.ReadByte();
                     string name = reader.ReadString();
-                    Current.DispatchProfileUpdate(senderId, pid, name);
+                    EnqueueProfilePacket(senderId, pid, name);
                 }
             }
             catch (Exception ex)
             {
-                VoiceChatPluginMain.Logger.LogError($"[VC] RPC dispatch error: {ex.Message}");
+                VoiceChatPluginMain.Logger.LogError($"[VC] RPC parse error: {ex.Message}");
             }
         }
     }
