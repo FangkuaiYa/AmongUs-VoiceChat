@@ -1,357 +1,542 @@
-using Interstellar.Routing.Router;
-using Interstellar.VoiceChat;
-using System.Diagnostics.CodeAnalysis;
+using Concentus;
+using Hazel;
+using HarmonyLib;
+
+using VoiceChatPlugin.Audio;
+
+using NAudio.Wave;
 using UnityEngine;
+using System.Collections.Generic;
+using System;
+using System.Linq;
 
 namespace VoiceChatPlugin.VoiceChat;
 
+/// <summary>
+/// Manages the in-game voice chat session.
+///
+/// Audio transport runs entirely over the existing Among Us / Impostor game
+/// server via PlayerControl RPC ID 203.  No separate voice server is needed.
+///
+/// Outgoing pipeline:
+///   WaveInEvent (PCM 48 kHz mono, 16-bit)
+///   -> Opus encoder (20 ms frames)
+///   -> RPC 203 broadcast (Hazel reliable UDP)
+///
+/// Incoming pipeline:
+///   RPC 203 arrives
+///   -> Opus decoder
+///   -> AudioRoutingInstance.AddSamples()
+///   -> Interstellar routing graph (volume, stereo pan, ghost reverb, radio)
+///   -> WasapiOut (WASAPI shared mode)
+/// </summary>
 public class VoiceChatRoom
 {
-	public static VoiceChatRoom? Current { get; private set; }
+    // RPC ID used for all voice-chat packets.
+    // Must not collide with VoiceChatRoomSettings (201) or any vanilla game RPC.
+    internal const byte AudioRpcId = 203;
 
-	private readonly VCRoom _interstellar;
-	private readonly VolumeRouter.Property _masterVolumeProperty;
+    // ── Singleton ──────────────────────────────────────────────────────────────
+    public static VoiceChatRoom? Current { get; private set; }
 
-	private readonly StereoRouter _imager;
-	private readonly VolumeRouter _normalVolume, _ghostVolume, _radioVolume, _clientVolume;
-	private readonly LevelMeterRouter _levelMeter;
+    // ── Interstellar audio routing graph ──────────────────────────────────────
+    private readonly AudioManager          _audioManager;
+    private readonly VolumeRouter.Property _masterVolumeProperty;
 
-	private readonly Dictionary<int, VCPlayer> _clients = new();
-	public IEnumerable<VCPlayer> AllClients => _clients.Values;
+    private readonly StereoRouter     _imager;
+    private readonly VolumeRouter     _normalVolume, _ghostVolume, _radioVolume, _clientVolume;
+    private readonly LevelMeterRouter _levelMeter;
 
-	private readonly List<IVoiceComponent> _virtualMics = new();
-	private readonly List<IVoiceComponent> _virtualSpeakers = new();
-	public void AddVirtualMicrophone(IVoiceComponent c) => _virtualMics.Add(c);
-	public void AddVirtualSpeaker(IVoiceComponent c) => _virtualSpeakers.Add(c);
-	public void RemoveVirtualMicrophone(IVoiceComponent c) => _virtualMics.Remove(c);
-	public void RemoveVirtualSpeaker(IVoiceComponent c) => _virtualSpeakers.Remove(c);
+    // ── Remote clients ─────────────────────────────────────────────────────────
+    // Key = Among Us ClientId (AmongUsClient.GetClientFromCharacter().Id)
+    private readonly Dictionary<int, VCPlayer>     _clients  = new();
+    private readonly Dictionary<int, IOpusDecoder> _decoders = new();
+    private readonly float[] _decodeBuffer = new float[4096];
 
-	public bool UsingMicrophone => _interstellar.Microphone != null;
-	public float LocalMicLevel => _localMicMeter?.Level ?? 0f;
-	public bool Mute => _interstellar.Mute;
-	public int SampleRate => _interstellar.SampleRate;
+    public IEnumerable<VCPlayer> AllClients => _clients.Values;
 
-	private LevelMeterRouter.Property? _localMicMeter;
+    // ── Virtual components (camera / vent) ─────────────────────────────────────
+    private readonly List<IVoiceComponent> _virtualMics     = new();
+    private readonly List<IVoiceComponent> _virtualSpeakers = new();
+    public void AddVirtualMicrophone(IVoiceComponent c)    => _virtualMics.Add(c);
+    public void AddVirtualSpeaker(IVoiceComponent c)       => _virtualSpeakers.Add(c);
+    public void RemoveVirtualMicrophone(IVoiceComponent c) => _virtualMics.Remove(c);
+    public void RemoveVirtualSpeaker(IVoiceComponent c)    => _virtualSpeakers.Remove(c);
 
-	// ── 破坏通讯检测缓存（避免每帧遍历）──────────────────────────────────
-	private bool _commsSabActive;
-	private float _commsSabCheckTimer;
+    // ── Microphone ─────────────────────────────────────────────────────────────
+    private WaveInEvent?  _waveIn;
+    private IOpusEncoder? _encoder;
+    private readonly byte[] _encodeBuffer = new byte[4096];
+    private float[] _pcmConvertBuf = null!;
+    private float _micVolume = 1f;
 
-	// ── Factory ────────────────────────────────────────────────────────
-	public static VoiceChatRoom Start(string region, string roomCode)
-	{
-		Current?.Close();
-		Current = new VoiceChatRoom(region, roomCode);
-		return Current;
-	}
+    public bool  UsingMicrophone => _waveIn != null;
+    public float LocalMicLevel   => _localMicLevel;
+    private volatile float _localMicLevel;
+    public bool  Mute  { get; private set; }
+    public int   SampleRate => AudioHelpers.ClockRate;
 
-	public static void RestartForCurrentGame()
-	{
-		if (AmongUsClient.Instance == null) return;
-		if (AmongUsClient.Instance.networkAddress is "127.0.0.1" or "localhost") return;
-		Start(AmongUsClient.Instance.networkAddress, AmongUsClient.Instance.GameId.ToString());
-	}
+    // ── Speaker ────────────────────────────────────────────────────────────────
+    private WasapiOut? _waveOut;
 
-	public static void CloseCurrentRoom()
-	{
-		Current?.Close();
-		Current = null;
-	}
+    // ── Comms sabotage cache ───────────────────────────────────────────────────
+    private bool  _commsSabActive;
+    private float _commsSabCheckTimer;
 
-	// ── Constructor ────────────────────────────────────────────────────
-	private VoiceChatRoom(string region, string roomCode)
-	{
-		SimpleRouter source = new();
-		SimpleEndpoint endpoint = new();
+    // ── Local profile tracking ─────────────────────────────────────────────────
+    private byte   _lastId   = byte.MaxValue;
+    private string _lastName = null!;
 
-		_imager = new StereoRouter();
-		_normalVolume = new VolumeRouter();
-		_ghostVolume = new VolumeRouter();
-		_radioVolume = new VolumeRouter();
-		_clientVolume = new VolumeRouter();
-		_levelMeter = new LevelMeterRouter();
+    // ══════════════════════════════════════════════════════════════════════════
+    // Factory
+    // ══════════════════════════════════════════════════════════════════════════
 
-		FilterRouter ghostLowpass = FilterRouter.CreateLowPassFilter(1900f, 2f);
-		ReverbRouter ghostReverb1 = new(53, 0.7f, 0.2f) { IsGlobalRouter = true };
-		ReverbRouter ghostReverb2 = new(173, 0.4f, 0.6f) { IsGlobalRouter = true };
-		FilterRouter radioHighpass = FilterRouter.CreateHighPassFilter(650f, 3.2f);
-		FilterRouter radioLowpass = FilterRouter.CreateLowPassFilter(800f, 2.1f);
-		DistortionFilter radioDistort = new() { IsGlobalRouter = true, DefaultThreshold = 0.55f };
-		VolumeRouter masterRouter = new() { IsGlobalRouter = true };
+    public static VoiceChatRoom Start()
+    {
+        Current?.Close();
+        Current = new VoiceChatRoom();
+        return Current;
+    }
 
-		source.Connect(_clientVolume);
-		_clientVolume.Connect(_imager);
-		_imager.Connect(_normalVolume);
-		_normalVolume.Connect(_levelMeter);
-		_levelMeter.Connect(masterRouter);
-		_imager.Connect(ghostLowpass);
-		ghostLowpass.Connect(_ghostVolume);
-		_ghostVolume.Connect(ghostReverb1);
-		ghostReverb1.Connect(ghostReverb2);
-		ghostReverb2.Connect(masterRouter);
-		_clientVolume.Connect(radioHighpass);
-		radioHighpass.Connect(radioLowpass);
-		radioLowpass.Connect(_radioVolume);
-		_radioVolume.Connect(radioDistort);
-		radioDistort.Connect(masterRouter);
-		masterRouter.Connect(endpoint);
+    public static void CloseCurrentRoom()
+    {
+        Current?.Close();
+        Current = null;
+    }
 
-		string server = VoiceChatConfig.ServerAddress;
-		if (string.IsNullOrEmpty(server)) server = "ws://118.25.84.234:22021";
+    // ══════════════════════════════════════════════════════════════════════════
+    // Constructor – builds the Interstellar routing graph
+    // ══════════════════════════════════════════════════════════════════════════
 
-		_interstellar = new VCRoom(source, roomCode, region, server + "/vc",
-			new VCRoomParameters
-			{
-				OnConnectClient = (clientId, instance, isLocal) =>
-				{
-					if (isLocal)
-					{
-						_clientVolume.GetProperty(instance).Volume = 1f;
-						_normalVolume.GetProperty(instance).Volume = 1f;
-						_localMicMeter = _levelMeter.GetProperty(instance);
-						VoiceChatPluginMain.Logger.LogInfo("[VC] Local client connected.");
-					}
-					else
-					{
-						_clients[clientId] = new VCPlayer(this, instance,
-							_imager, _normalVolume, _ghostVolume, _radioVolume, _clientVolume, _levelMeter);
-						VoiceChatPluginMain.Logger.LogInfo($"[VC] Remote client {clientId} connected.");
-					}
-				},
-				OnUpdateProfile = (clientId, playerId, playerName) =>
-				{
-					if (_clients.TryGetValue(clientId, out var p))
-					{
-						p.UpdateProfile(playerId, playerName);
-						VoiceChatPluginMain.Logger.LogInfo($"[VC] Client {clientId}: id={playerId} name={playerName}");
-					}
-				},
-				OnDisconnect = clientId =>
-				{
-					_clients.Remove(clientId);
-					VoiceChatPluginMain.Logger.LogInfo($"[VC] Client {clientId} disconnected.");
-				},
-			}.SetBufferLength(2048));
+    private VoiceChatRoom()
+    {
+        SimpleRouter   source   = new();
+        SimpleEndpoint endpoint = new();
 
-		_masterVolumeProperty = masterRouter.GetProperty(_interstellar);
-		SetMasterVolume(VoiceChatConfig.MasterVolume);
-		SetMicrophone(VoiceChatConfig.MicrophoneDevice);
+        _imager       = new StereoRouter();
+        _normalVolume = new VolumeRouter();
+        _ghostVolume  = new VolumeRouter();
+        _radioVolume  = new VolumeRouter();
+        _clientVolume = new VolumeRouter();
+        _levelMeter   = new LevelMeterRouter();
 
-#if ANDROID
-		// Android：创建 ManualSpeaker，由 Unity AudioSource 驱动
-		SetupAndroidSpeaker();
-#else
-		SetSpeaker(VoiceChatConfig.SpeakerDevice);
-#endif
-		VoiceChatPluginMain.Logger.LogInfo("[VC] VoiceChatRoom constructed.");
-	}
+        FilterRouter     ghostLowpass  = FilterRouter.CreateLowPassFilter(1900f, 2f);
+        ReverbRouter     ghostReverb1  = new(53,  0.7f, 0.2f) { IsGlobalRouter = true };
+        ReverbRouter     ghostReverb2  = new(173, 0.4f, 0.6f) { IsGlobalRouter = true };
+        FilterRouter     radioHighpass = FilterRouter.CreateHighPassFilter(650f, 3.2f);
+        FilterRouter     radioLowpass  = FilterRouter.CreateLowPassFilter(800f, 2.1f);
+        DistortionFilter radioDistort  = new() { IsGlobalRouter = true, DefaultThreshold = 0.55f };
+        VolumeRouter     masterRouter  = new() { IsGlobalRouter = true };
 
-	// ── Device control ─────────────────────────────────────────────────
-	public void SetMasterVolume(float v) => _masterVolumeProperty.Volume = v;
-	public void SetMicVolume(float v) => _interstellar.Microphone?.SetVolume(v);
-	public void SetLoopBack(bool lb) => _interstellar.SetLoopBack(lb);
-	public void SetMute(bool mute) => _interstellar.SetMute(mute);
-	public void ToggleMute() => SetMute(!Mute);
+        source.Connect(_clientVolume);
+        _clientVolume.Connect(_imager);
+        _imager.Connect(_normalVolume);
+        _normalVolume.Connect(_levelMeter);
+        _levelMeter.Connect(masterRouter);
+        _imager.Connect(ghostLowpass);
+        ghostLowpass.Connect(_ghostVolume);
+        _ghostVolume.Connect(ghostReverb1);
+        ghostReverb1.Connect(ghostReverb2);
+        ghostReverb2.Connect(masterRouter);
+        _clientVolume.Connect(radioHighpass);
+        radioHighpass.Connect(radioLowpass);
+        radioLowpass.Connect(_radioVolume);
+        _radioVolume.Connect(radioDistort);
+        radioDistort.Connect(masterRouter);
+        masterRouter.Connect(endpoint);
 
-	public void SetMicrophone(string deviceName)
-	{
-		try
-		{
-#if ANDROID
-			_interstellar.Microphone = new ManualMicrophone();
-#else
-			_interstellar.Microphone = new WindowsMicrophone(deviceName);
-#endif
-			_interstellar.Microphone?.SetVolume(VoiceChatConfig.MicVolume);
-			VoiceChatPluginMain.Logger.LogInfo(
-				$"[VC] Mic set: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
-		}
-		catch (Exception ex)
-		{
-			VoiceChatPluginMain.Logger.LogError($"[VC] Mic init failed: {ex.Message}");
-			try { _interstellar.Microphone = null; } catch { }
-		}
-	}
+        _audioManager = new AudioManager(source, 2048, 4096);
+        _masterVolumeProperty = masterRouter.GetProperty(_audioManager);
+        SetMasterVolume(VoiceChatConfig.MasterVolume);
 
-#if ANDROID
-	// Android：用 ManualSpeaker 配合 Unity AudioSource 播放
-	private UnityEngine.AudioSource? _androidAudioSource;
-	private ManualSpeaker? _androidSpeaker;
+        SetMicrophone(VoiceChatConfig.MicrophoneDevice);
+        SetSpeaker(VoiceChatConfig.SpeakerDevice);
 
-	private void SetupAndroidSpeaker()
-	{
-		try
-		{
-			var go = new UnityEngine.GameObject("VC_AndroidSpeaker");
-			UnityEngine.Object.DontDestroyOnLoad(go);
-			_androidAudioSource = go.AddComponent<UnityEngine.AudioSource>();
-			_androidAudioSource.spatialBlend = 0f;
+        VoiceChatPluginMain.Logger.LogInfo("[VC] VoiceChatRoom constructed (Hazel transport, no external server).");
+    }
 
-			_androidSpeaker = new ManualSpeaker(onClosed: null);
+    // ══════════════════════════════════════════════════════════════════════════
+    // Device control
+    // ══════════════════════════════════════════════════════════════════════════
 
-			// IL2CPP 环境下无法用委托包装 AudioClip 流式回调；
-			// 用 OnAudioFilterRead MonoBehaviour 每帧拉取 ManualSpeaker 的音频数据。
-			int sr = _interstellar.SampleRate;
-			var puller = _androidAudioSource.gameObject.AddComponent<VCAndroidAudioPuller>();
-			puller.Init(_androidSpeaker, sr);
+    public void SetMasterVolume(float v) => _masterVolumeProperty.Volume = v;
 
-			_interstellar.Speaker = _androidSpeaker;
-			VoiceChatPluginMain.Logger.LogInfo("[VC] Android speaker set up.");
-		}
-		catch (Exception ex)
-		{
-			VoiceChatPluginMain.Logger.LogError($"[VC] Android speaker setup failed: {ex.Message}");
-		}
-	}
+    public void SetMicVolume(float v)
+    {
+        _micVolume = Math.Clamp(v, 0f, 2f);
+    }
 
-	// Android mic 推送（每帧调用）
-	private string? _androidMicDevice;
-	private UnityEngine.AudioClip? _androidMicClip;
-	private int _androidMicLastPos;
+    public void SetMute(bool mute) => Mute = mute;
+    public void ToggleMute()       => SetMute(!Mute);
+    public void SetLoopBack(bool lb) { }
 
-	public void StartAndroidMic(string device = "")
-	{
-		_androidMicDevice = device;
-		_androidMicClip = UnityEngine.Microphone.Start(device, true, 1, 48000);
-		_androidMicLastPos = 0;
-	}
+    public void SetMicrophone(string deviceName)
+    {
+        try
+        {
+            _waveIn?.StopRecording();
+            _waveIn?.Dispose();
+            _waveIn = null;
+            _encoder?.Dispose();
+            _encoder = null;
 
-	private void PushAndroidMicData()
-	{
-		if (_androidMicDevice == null || _androidMicClip == null) return;
-		if (_interstellar.Microphone is not ManualMicrophone mm) return;
+            _encoder = AudioHelpers.GetOpusEncoder();
 
-		int cur = UnityEngine.Microphone.GetPosition(_androidMicDevice);
-		if (cur == _androidMicLastPos) return;
+            int deviceNum = 0;
+            int total = WaveInEvent.DeviceCount;
+            for (int i = 0; i < total; i++)
+            {
+                if (WaveInEvent.GetCapabilities(i).ProductName == deviceName)
+                { deviceNum = i; break; }
+            }
 
-		int count = cur > _androidMicLastPos
-			? cur - _androidMicLastPos
-			: _androidMicClip.samples - _androidMicLastPos + cur;
+            _waveIn = new WaveInEvent
+            {
+                DeviceNumber       = deviceNum,
+                WaveFormat         = new WaveFormat(AudioHelpers.ClockRate, 16, 1),
+                BufferMilliseconds = 20,
+                NumberOfBuffers    = 4,
+            };
+            _waveIn.DataAvailable += OnMicDataAvailable;
+            _waveIn.StartRecording();
 
-		var buf = new float[count];
-		_androidMicClip.GetData(buf, _androidMicLastPos);
-		_androidMicLastPos = cur;
-		mm.PushAudioData(buf);
-	}
-#else
-	public void SetSpeaker(string deviceName)
-	{
-		try
-		{
-			_interstellar.Speaker = new WindowsSpeaker(deviceName);
-			VoiceChatPluginMain.Logger.LogInfo(
-				$"[VC] Speaker set: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
-		}
-		catch (Exception ex)
-		{
-			VoiceChatPluginMain.Logger.LogError($"[VC] Speaker init failed: {ex.Message}");
-			try { _interstellar.Speaker = null; } catch { }
-		}
-	}
-#endif
+            VoiceChatPluginMain.Logger.LogInfo(
+                $"[VC] Mic set: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
+        }
+        catch (Exception ex)
+        {
+            VoiceChatPluginMain.Logger.LogError($"[VC] Mic init failed: {ex.Message}");
+            _waveIn  = null;
+            _encoder = null;
+        }
+    }
 
-	// ── Per-frame Update ───────────────────────────────────────────────
-	public void Update()
-	{
-		TryUpdateLocalProfile();
+    public void SetSpeaker(string deviceName)
+    {
+        try
+        {
+            _waveOut?.Stop();
+            _waveOut?.Dispose();
+            _waveOut = null;
 
-#if ANDROID
-		PushAndroidMicData();
-#endif
+            var endpoint = _audioManager.Endpoint;
+            if (endpoint == null)
+            {
+                VoiceChatPluginMain.Logger.LogError("[VC] Audio graph has no endpoint – speaker not started.");
+                return;
+            }
 
-		// 破坏通讯状态（每 0.5 秒更新一次，减少遍历）
-		_commsSabCheckTimer -= Time.deltaTime;
-		if (_commsSabCheckTimer <= 0f)
-		{
-			_commsSabCheckTimer = 0.5f;
-			_commsSabActive = CheckCommsSabotage();
-		}
+            var enumerator = new NAudio.CoreAudioApi.MMDeviceEnumerator();
+            NAudio.CoreAudioApi.MMDevice? device = null;
+            if (!string.IsNullOrEmpty(deviceName))
+            {
+                foreach (var d in enumerator.EnumerateAudioEndPoints(
+                             NAudio.CoreAudioApi.DataFlow.Render,
+                             NAudio.CoreAudioApi.DeviceState.Active))
+                {
+                    if (d.FriendlyName == deviceName) { device = d; break; }
+                }
+            }
+            device ??= enumerator.GetDefaultAudioEndpoint(
+                NAudio.CoreAudioApi.DataFlow.Render,
+                NAudio.CoreAudioApi.Role.Multimedia);
 
-		var localPlayer = PlayerControl.LocalPlayer;
-		Vector2? listenerPos = localPlayer ? (Vector2)localPlayer.transform.position : null;
-		bool localInVent = localPlayer != null && localPlayer.inVent;
+            _waveOut = new WasapiOut(device, NAudio.CoreAudioApi.AudioClientShareMode.Shared, false, 50);
+            _waveOut.Init(endpoint);
+            _waveOut.Play();
 
-		// 虚拟扬声器（摄像头等）缓存
-		List<SpeakerCache> speakerCache = new();
-		if (listenerPos.HasValue)
-		{
-			float maxRange = VoiceChatConfig.SyncedRoomSettings.MaxChatDistance;
-			foreach (var v in _virtualSpeakers)
-			{
-				float d = Vector2.Distance(v.Position, listenerPos.Value);
-				if (d < maxRange)
-					speakerCache.Add(new(v, GetVolume(d, maxRange), GetPan(listenerPos.Value.x, v.Position.x)));
-			}
-		}
+            VoiceChatPluginMain.Logger.LogInfo(
+                $"[VC] Speaker set: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
+        }
+        catch (Exception ex)
+        {
+            VoiceChatPluginMain.Logger.LogError($"[VC] Speaker init failed: {ex.Message}");
+            _waveOut = null;
+        }
+    }
 
-		bool inLobby = LobbyBehaviour.Instance != null;
-		bool inMeeting = MeetingHud.Instance != null || ExileController.Instance != null;
-		bool inGame = ShipStatus.Instance != null;
+    // ══════════════════════════════════════════════════════════════════════════
+    // Outgoing: mic capture -> Opus -> RPC broadcast
+    // ══════════════════════════════════════════════════════════════════════════
 
-		foreach (var client in _clients.Values)
-		{
-			if (inLobby || !inGame)
-				client.UpdateLobby();
-			else if (inMeeting)
-				client.UpdateMeeting();
-			else
-				client.UpdateTaskPhase(listenerPos, speakerCache, _virtualMics, localInVent, _commsSabActive);
-		}
-	}
+    private void OnMicDataAvailable(object? sender, WaveInEventArgs e)
+    {
+        if (Mute || _encoder == null) return;
+        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null) return;
 
-	private static bool CheckCommsSabotage()
-	{
-		if (ShipStatus.Instance == null) return false;
-		foreach (var sys in ShipStatus.Instance.Systems.Values)
-		{
-			var hud = sys.TryCast<HudOverrideSystemType>();
-			if (hud != null && hud.IsActive) return true;
-		}
-		return false;
-	}
+        int samples = e.BytesRecorded / 2;
+        if (_pcmConvertBuf == null || _pcmConvertBuf.Length != samples)
+            _pcmConvertBuf = new float[samples];
 
-	// ── Lifecycle ──────────────────────────────────────────────────────
-	public void Rejoin()
-	{
-		_interstellar.Rejoin();
-		UpdateLocalProfile(true);
-		foreach (var c in _clients.Values) c.ResetMapping();
-	}
+        float level = 0f;
+        for (int i = 0; i < samples; i++)
+        {
+            float s = BitConverter.ToInt16(e.Buffer, i * 2) / 32768f * _micVolume;
+            _pcmConvertBuf[i] = s;
+            float abs = s < 0 ? -s : s;
+            if (abs > level) level = abs;
+        }
+        _localMicLevel = level;
 
-	public void Close() => _interstellar.Disconnect();
+        try
+        {
+            int encoded = _encoder.Encode(_pcmConvertBuf, samples, _encodeBuffer, _encodeBuffer.Length);
+            if (encoded <= 0) return;
 
-	public bool TryGetPlayer(byte playerId, [MaybeNullWhen(false)] out VCPlayer player)
-	{
-		foreach (var c in _clients.Values)
-			if (c.PlayerId == playerId) { player = c; return true; }
-		player = null;
-		return false;
-	}
+            var payload = new byte[encoded];
+            Array.Copy(_encodeBuffer, payload, encoded);
 
-	// ── Profile ────────────────────────────────────────────────────────
-	private byte _lastId = byte.MaxValue;
-	private string _lastName = null!;
+            // Packet type 0 = audio frame
+            var w = AmongUsClient.Instance.StartRpcImmediately(
+                PlayerControl.LocalPlayer.NetId, AudioRpcId, SendOption.Reliable, -1);
+            w.Write((byte)0);
+            w.WriteBytesAndSize(payload);
+            AmongUsClient.Instance.FinishRpcImmediately(w);
+        }
+        catch (Exception ex)
+        {
+            VoiceChatPluginMain.Logger.LogError($"[VC] Mic send error: {ex.Message}");
+        }
+    }
 
-	private void TryUpdateLocalProfile() => UpdateLocalProfile(false);
+    // ══════════════════════════════════════════════════════════════════════════
+    // Incoming: RPC -> Opus decode -> audio graph
+    // ══════════════════════════════════════════════════════════════════════════
 
-	private void UpdateLocalProfile(bool always)
-	{
-		var lp = PlayerControl.LocalPlayer;
-		if (!lp) return;
-		if (always || lp.PlayerId != _lastId || lp.name != _lastName)
-		{
-			_lastId = lp.PlayerId;
-			_lastName = lp.name;
-			_interstellar.UpdateProfile(_lastName, _lastId);
-		}
-	}
+    private void DispatchAudioFrame(int senderId, byte[] encoded)
+    {
+        if (!_decoders.TryGetValue(senderId, out var decoder))
+        {
+            decoder = AudioHelpers.GetOpusDecoder();
+            _decoders[senderId] = decoder;
+        }
 
-	// ── Utilities ──────────────────────────────────────────────────────
-	internal static float GetVolume(float dist, float maxDist)
-		=> Math.Clamp(1f - dist / maxDist, 0f, 1f);
+        int decoded = decoder.Decode(encoded, _decodeBuffer, _decodeBuffer.Length);
+        if (decoded <= 0) return;
 
-	internal static float GetPan(float micX, float spkX)
-		=> Math.Clamp((spkX - micX) / 3f, -1f, 1f);
+        if (!_clients.TryGetValue(senderId, out var player))
+        {
+            var instance = _audioManager.Generate(senderId);
+            player = new VCPlayer(this, instance,
+                _imager, _normalVolume, _ghostVolume, _radioVolume, _clientVolume, _levelMeter);
+            _clients[senderId] = player;
+            player.TryResolveFromClientId(senderId);
+            VoiceChatPluginMain.Logger.LogInfo($"[VC] New remote audio client {senderId}.");
+        }
 
-	internal record SpeakerCache(IVoiceComponent Speaker, float Volume, float Pan);
+        player.AddSamples(_decodeBuffer, decoded);
+    }
+
+    private void DispatchProfileUpdate(int senderId, byte playerId, string playerName)
+    {
+        if (_clients.TryGetValue(senderId, out var player))
+        {
+            player.UpdateProfile(playerId, playerName);
+            VoiceChatPluginMain.Logger.LogInfo(
+                $"[VC] Client {senderId}: playerId={playerId} name={playerName}");
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Per-frame Update
+    // ══════════════════════════════════════════════════════════════════════════
+
+    public void Update()
+    {
+        PruneDisconnectedClients();
+        TryUpdateLocalProfile();
+
+        _commsSabCheckTimer -= Time.deltaTime;
+        if (_commsSabCheckTimer <= 0f)
+        {
+            _commsSabCheckTimer = 0.5f;
+            _commsSabActive     = CheckCommsSabotage();
+        }
+
+        var localPlayer  = PlayerControl.LocalPlayer;
+        Vector2? listenerPos = localPlayer ? (Vector2)localPlayer.transform.position : null;
+        bool localInVent = localPlayer != null && localPlayer.inVent;
+
+        List<SpeakerCache> speakerCache = new();
+        if (listenerPos.HasValue)
+        {
+            float maxRange = VoiceChatConfig.SyncedRoomSettings.MaxChatDistance;
+            foreach (var v in _virtualSpeakers)
+            {
+                float d = Vector2.Distance(v.Position, listenerPos.Value);
+                if (d < maxRange)
+                    speakerCache.Add(new(v, GetVolume(d, maxRange), GetPan(listenerPos.Value.x, v.Position.x)));
+            }
+        }
+
+        bool inLobby   = LobbyBehaviour.Instance != null;
+        bool inMeeting = MeetingHud.Instance != null || ExileController.Instance != null;
+        bool inGame    = ShipStatus.Instance != null;
+
+        foreach (var client in _clients.Values)
+        {
+            if (inLobby || !inGame)
+                client.UpdateLobby();
+            else if (inMeeting)
+                client.UpdateMeeting();
+            else
+                client.UpdateTaskPhase(listenerPos, speakerCache, _virtualMics, localInVent, _commsSabActive);
+        }
+    }
+
+    private void PruneDisconnectedClients()
+    {
+        if (AmongUsClient.Instance == null) return;
+        List<int>? toRemove = null;
+        foreach (var id in _clients.Keys)
+        {
+            bool alive = false;
+            foreach (var cl in AmongUsClient.Instance.allClients)
+                if (cl.Id == id) { alive = true; break; }
+            if (!alive) (toRemove ??= new()).Add(id);
+        }
+        if (toRemove == null) return;
+        foreach (var id in toRemove)
+        {
+            _clients.Remove(id);
+            _decoders.Remove(id);
+            _audioManager.Remove(id);
+            VoiceChatPluginMain.Logger.LogInfo($"[VC] Client {id} pruned.");
+        }
+    }
+
+    private static bool CheckCommsSabotage()
+    {
+        if (ShipStatus.Instance == null) return false;
+        foreach (var sys in ShipStatus.Instance.Systems.Values)
+        {
+            var hud = sys.TryCast<HudOverrideSystemType>();
+            if (hud != null && hud.IsActive) return true;
+        }
+        return false;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Lifecycle
+    // ══════════════════════════════════════════════════════════════════════════
+
+    public void Rejoin()
+    {
+        foreach (var id in _clients.Keys.ToList())
+        {
+            _audioManager.Remove(id);
+            _decoders.Remove(id);
+        }
+        _clients.Clear();
+        foreach (var c in _clients.Values) c.ResetMapping();
+        VoiceChatPluginMain.Logger.LogInfo("[VC] Rejoin: client state cleared.");
+    }
+
+    public void Close()
+    {
+        try { _waveIn?.StopRecording(); _waveIn?.Dispose(); } catch { }
+        _waveIn = null;
+        try { _waveOut?.Stop(); _waveOut?.Dispose(); } catch { }
+        _waveOut = null;
+        _encoder?.Dispose();
+        _encoder = null;
+        _clients.Clear();
+        _decoders.Clear();
+    }
+
+    public bool TryGetPlayer(byte playerId, out VCPlayer? player)
+    {
+        foreach (var c in _clients.Values)
+            if (c.PlayerId == playerId) { player = c; return true; }
+        player = null;
+        return false;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Local profile broadcast
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private void TryUpdateLocalProfile() => UpdateLocalProfile(false);
+
+    private void UpdateLocalProfile(bool always)
+    {
+        var lp = PlayerControl.LocalPlayer;
+        if (!lp) return;
+        if (!always && lp.PlayerId == _lastId && lp.name == _lastName) return;
+
+        _lastId   = lp.PlayerId;
+        _lastName = lp.name;
+
+        try
+        {
+            if (AmongUsClient.Instance == null) return;
+            // Packet type 1 = profile update
+            var w = AmongUsClient.Instance.StartRpcImmediately(
+                PlayerControl.LocalPlayer.NetId, AudioRpcId, SendOption.Reliable, -1);
+            w.Write((byte)1);
+            w.Write(_lastId);
+            w.Write(_lastName);
+            AmongUsClient.Instance.FinishRpcImmediately(w);
+        }
+        catch (Exception ex)
+        {
+            VoiceChatPluginMain.Logger.LogError($"[VC] Profile broadcast error: {ex.Message}");
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Utility
+    // ══════════════════════════════════════════════════════════════════════════
+
+    internal static float GetVolume(float dist, float maxDist)
+        => Math.Clamp(1f - dist / maxDist, 0f, 1f);
+
+    internal static float GetPan(float micX, float spkX)
+        => Math.Clamp((spkX - micX) / 3f, -1f, 1f);
+
+    internal record SpeakerCache(IVoiceComponent Speaker, float Volume, float Pan);
+
+    // ── Harmony patch: intercept incoming RPC 203 ──────────────────────────────
+    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
+    public static class AudioRpcPatch
+    {
+        [HarmonyPostfix]
+        public static void Postfix(PlayerControl __instance, byte callId, MessageReader reader)
+        {
+            if (callId != AudioRpcId) return;
+            if (Current == null) return;
+
+            int senderId = -1;
+            if (AmongUsClient.Instance != null)
+            {
+                var cl = AmongUsClient.Instance.GetClientFromCharacter(__instance);
+                if (cl != null) senderId = cl.Id;
+            }
+            if (senderId < 0) return;
+            // Skip our own RPC echo
+            if (AmongUsClient.Instance != null &&
+                senderId == AmongUsClient.Instance.ClientId) return;
+
+            try
+            {
+                byte packetType = reader.ReadByte();
+                if (packetType == 0)
+                {
+                    byte[] encoded = reader.ReadBytesAndSize();
+                    if (encoded != null && encoded.Length > 0)
+                        Current.DispatchAudioFrame(senderId, encoded);
+                }
+                else if (packetType == 1)
+                {
+                    byte   pid  = reader.ReadByte();
+                    string name = reader.ReadString();
+                    Current.DispatchProfileUpdate(senderId, pid, name);
+                }
+            }
+            catch (Exception ex)
+            {
+                VoiceChatPluginMain.Logger.LogError($"[VC] RPC dispatch error: {ex.Message}");
+            }
+        }
+    }
 }
