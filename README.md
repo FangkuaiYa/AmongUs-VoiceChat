@@ -1,7 +1,8 @@
 # VoiceChatPlugin
 
 A standalone voice chat BepInEx plugin for Among Us.  
-By FangkuaiYa (and Dolly) Tester: Elinmei Farewell TAIKongguo Imp11  
+By FangkuaiYa (and Dolly) 
+Tester: Elinmei Farewell TAIKongguo Imp11  
 Server by TAIKongguo  
 Client Setting UI by farewell  
 **Just place the single `VoiceChatPlugin.dll` file into `BepInEx/plugins/` and it works.**
