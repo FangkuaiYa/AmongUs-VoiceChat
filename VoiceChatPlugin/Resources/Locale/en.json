@@ -29,5 +29,22 @@
     "cameraCanHear": "Camera Hears Sounds",
     "impostorPrivateRadio": "Impostor Private Radio",
     "onlyGhostsCanTalk": "Only Ghosts Can Talk",
-    "onlyMeetingOrLobby": "Only Meeting / Lobby"
+    "onlyMeetingOrLobby": "Only Meeting / Lobby",
+    "channelAll": "All",
+    "channelImpostor": "Impostors",
+    "tooltipSpeakerTitle": "Speaker",
+    "tooltipSpeakerHotkey": "Hotkey: {0}",
+    "tooltipSpeakerVolume": "Volume: {0}%",
+    "tooltipSpeakerStatus": "Status: {0}",
+    "tooltipMicTitle": "Microphone",
+    "tooltipMicChannel": "Channel: {0}",
+    "tooltipMicVolume": "Volume: {0}%",
+    "tooltipMicHotkey": "Hotkey: {0}",
+    "tooltipMicStatus": "Status: {0}",
+    "tooltipRightClick": "Right-click: switch channel",
+    "micStatusOn": "Active",
+    "micStatusMuted": "Muted",
+    "micStatusImpostor": "Impostor Radio",
+    "speakerStatusOn": "Active",
+    "speakerStatusOff": "Muted"
 }

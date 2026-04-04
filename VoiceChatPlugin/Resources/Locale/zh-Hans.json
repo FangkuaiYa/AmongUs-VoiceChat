@@ -29,5 +29,22 @@
     "cameraCanHear": "监控可以收听声音",
     "impostorPrivateRadio": "内鬼私密通话",
     "onlyGhostsCanTalk": "只有幽灵可以语音",
-    "onlyMeetingOrLobby": "仅限会议/大厅内语音"
+    "onlyMeetingOrLobby": "仅限会议/大厅内语音",
+    "channelAll": "全员",
+    "channelImpostor": "内鬼阵营",
+    "tooltipSpeakerTitle": "扬声器",
+    "tooltipSpeakerHotkey": "快捷键: {0}",
+    "tooltipSpeakerVolume": "音量: {0}%",
+    "tooltipSpeakerStatus": "状态: {0}",
+    "tooltipMicTitle": "麦克风",
+    "tooltipMicChannel": "频道: {0}",
+    "tooltipMicVolume": "音量: {0}%",
+    "tooltipMicHotkey": "快捷键: {0}",
+    "tooltipMicStatus": "状态: {0}",
+    "tooltipRightClick": "右键: 切换聊天频道",
+    "micStatusOn": "开启",
+    "micStatusMuted": "已静音",
+    "micStatusImpostor": "内鬼通话",
+    "speakerStatusOn": "开启",
+    "speakerStatusOff": "已静音"
 }
