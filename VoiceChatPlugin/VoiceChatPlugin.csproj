@@ -11,6 +11,7 @@
     <GenerateAssemblyInfo>True</GenerateAssemblyInfo>
   </PropertyGroup>
 
+  <!-- BepInEx / Among Us plugin framework -->
   <ItemGroup>
     <PackageReference Include="BepInEx.Unity.IL2CPP"   Version="6.0.0-be.735"  Private="false" ExcludeAssets="runtime;native" />
     <PackageReference Include="AmongUs.GameLibs.Steam" Version="2025.10.14"     PrivateAssets="all" />
@@ -20,59 +21,6 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\**" />
-  </ItemGroup>
-
-	<!-- Runtime DLLs: referenced at compile time and embedded for single-file deployment -->
-  <ItemGroup>
-		<Reference Include="NAudio">
-			<HintPath>Libs\NAudio.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
-		<Reference Include="NAudio.Core">
-			<HintPath>Libs\NAudio.Core.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
-		<Reference Include="NAudio.Wasapi">
-			<HintPath>Libs\NAudio.Wasapi.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
-		<Reference Include="NAudio.WinMM">
-			<HintPath>Libs\NAudio.WinMM.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
-		<Reference Include="NAudio.Asio">
-			<HintPath>Libs\NAudio.Asio.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
-		<Reference Include="NAudio.Midi">
-			<HintPath>Libs\NAudio.Midi.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
-		<Reference Include="Concentus">
-			<HintPath>Libs\Concentus.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
-  </ItemGroup>
-
-  <ItemGroup>
-		<EmbeddedResource Include="Libs\NAudio.dll">
-			<LogicalName>Lib.NAudio.Core.dll</LogicalName>
-		</EmbeddedResource>
-		<EmbeddedResource Include="Libs\NAudio.Wasapi.dll">
-			<LogicalName>Lib.NAudio.Wasapi.dll</LogicalName>
-		</EmbeddedResource>
-		<EmbeddedResource Include="Libs\NAudio.WinMM.dll">
-			<LogicalName>Lib.NAudio.WinMM.dll</LogicalName>
-		</EmbeddedResource>
-		<EmbeddedResource Include="Libs\NAudio.Asio.dll">
-			<LogicalName>Lib.NAudio.Asio.dll</LogicalName>
-		</EmbeddedResource>
-		<EmbeddedResource Include="Libs\NAudio.Midi.dll">
-			<LogicalName>Lib.NAudio.Midi.dll</LogicalName>
-		</EmbeddedResource>
-		<EmbeddedResource Include="Libs\Concentus.dll">
-			<LogicalName>Lib.Concentus.dll</LogicalName>
-		</EmbeddedResource>
   </ItemGroup>
 
 </Project>

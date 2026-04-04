@@ -335,7 +335,7 @@ public static class VoiceChatPatches
 		try
 		{
 			if (cache && CachedSprites.TryGetValue(path + pixelsPerUnit, out var sprite)) return sprite;
-			Texture2D texture = LoadTextureFromResources(path);
+			Texture2D texture = loadTextureFromResources(path);
 			sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f), pixelsPerUnit);
 			if (cache) sprite.hideFlags |= HideFlags.HideAndDontSave | HideFlags.DontSaveInEditor;
 			if (!cache) return sprite;
@@ -348,7 +348,7 @@ public static class VoiceChatPatches
 		return null;
 	}
 
-	public static Texture2D LoadTextureFromResources(string path)
+	public static Texture2D loadTextureFromResources(string path)
 	{
 		try
 		{
@@ -357,7 +357,7 @@ public static class VoiceChatPatches
 				wrapMode = TextureWrapMode.Clamp
 			};
 			var myStream = Assembly.GetCallingAssembly().GetManifestResourceStream(path);
-			var data = myStream?.ReadFully();
+			var data = myStream.ReadFully();
 			texture.LoadImage(data, false);
 			return texture;
 		}

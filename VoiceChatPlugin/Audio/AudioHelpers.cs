@@ -1,4 +1,6 @@
-using Concentus;
+using VoiceChatPlugin.Concentus;
+using VoiceChatPlugin.Concentus.Enums;
+using VoiceChatPlugin.Concentus.Structs;
 
 namespace VoiceChatPlugin.Audio;
 
@@ -6,9 +8,12 @@ internal static class AudioHelpers
 {
     public const int ClockRate = 48000;
 
+    // Directly instantiate the managed Opus encoder/decoder.
+    // This bypasses OpusCodecFactory's native-library probe which would
+    // throw on game startup (no libopus.dll present in the game directory).
     public static IOpusEncoder GetOpusEncoder()
-        => OpusCodecFactory.CreateEncoder(48000, 1, Concentus.Enums.OpusApplication.OPUS_APPLICATION_VOIP);
+        => new OpusEncoder(48000, 1, OpusApplication.OPUS_APPLICATION_VOIP);
 
     public static IOpusDecoder GetOpusDecoder()
-        => OpusCodecFactory.CreateDecoder(48000, 1);
+        => new OpusDecoder(48000, 1);
 }

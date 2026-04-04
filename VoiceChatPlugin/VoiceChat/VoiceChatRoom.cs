@@ -1,8 +1,8 @@
-using Concentus;
+using VoiceChatPlugin.Concentus;
 using Hazel;
 using HarmonyLib;
 using VoiceChatPlugin.Audio;
-using NAudio.Wave;
+using VoiceChatPlugin.NAudio.Wave;
 using UnityEngine;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -241,22 +241,22 @@ public class VoiceChatRoom
                 return;
             }
 
-            var enumerator = new NAudio.CoreAudioApi.MMDeviceEnumerator();
-            NAudio.CoreAudioApi.MMDevice? device = null;
+            var enumerator = new VoiceChatPlugin.NAudio.CoreAudioApi.MMDeviceEnumerator();
+            VoiceChatPlugin.NAudio.CoreAudioApi.MMDevice? device = null;
             if (!string.IsNullOrEmpty(deviceName))
             {
                 foreach (var d in enumerator.EnumerateAudioEndPoints(
-                             NAudio.CoreAudioApi.DataFlow.Render,
-                             NAudio.CoreAudioApi.DeviceState.Active))
+                             VoiceChatPlugin.NAudio.CoreAudioApi.DataFlow.Render,
+                             VoiceChatPlugin.NAudio.CoreAudioApi.DeviceState.Active))
                 {
                     if (d.FriendlyName == deviceName) { device = d; break; }
                 }
             }
             device ??= enumerator.GetDefaultAudioEndpoint(
-                NAudio.CoreAudioApi.DataFlow.Render,
-                NAudio.CoreAudioApi.Role.Multimedia);
+                VoiceChatPlugin.NAudio.CoreAudioApi.DataFlow.Render,
+                VoiceChatPlugin.NAudio.CoreAudioApi.Role.Multimedia);
 
-            _waveOut = new WasapiOut(device, NAudio.CoreAudioApi.AudioClientShareMode.Shared, false, 50);
+            _waveOut = new WasapiOut(device, VoiceChatPlugin.NAudio.CoreAudioApi.AudioClientShareMode.Shared, false, 50);
             _waveOut.Init(ep);
             _waveOut.Play();
 

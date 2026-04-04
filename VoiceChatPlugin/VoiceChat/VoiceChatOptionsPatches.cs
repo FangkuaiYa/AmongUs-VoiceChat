@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
-using NAudio.CoreAudioApi;
-using NAudio.Wave;
+using VoiceChatPlugin.NAudio.CoreAudioApi;
+using VoiceChatPlugin.NAudio.Wave;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;

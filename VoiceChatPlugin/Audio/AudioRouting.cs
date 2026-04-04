@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using NAudio.Dsp;
-using NAudio.Wave;
+using VoiceChatPlugin.NAudio.Dsp;
+using VoiceChatPlugin.NAudio.Wave;
 
 namespace VoiceChatPlugin.Audio;
 
