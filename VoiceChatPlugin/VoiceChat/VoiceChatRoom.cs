@@ -455,8 +455,19 @@ public class VoiceChatRoom
             player = new VCPlayer(this, instance,
                 _imager, _normalVolume, _ghostVolume, _radioVolume, _clientVolume, _levelMeter);
             _clients[senderId] = player;
+            // FIX #1: Try to resolve PlayerControl on slot creation, but also
+            // apply any buffered profile that arrived before audio started.
             player.TryResolveFromClientId(senderId);
             VoiceChatPluginMain.Logger.LogInfo($"[VC] New client {senderId}.");
+
+            // Apply any profile that was buffered before the audio slot existed.
+            if (_pendingProfiles.TryGetValue(senderId, out var pending))
+            {
+                player.UpdateProfile(pending.PlayerId, pending.PlayerName);
+                _pendingProfiles.Remove(senderId);
+                VoiceChatPluginMain.Logger.LogInfo(
+                    $"[VC] Applied buffered profile to new client {senderId}: id={pending.PlayerId} name={pending.PlayerName}");
+            }
         }
 
         // AddSamples writes to BufferedSampleProvider which uses CircularFloatBuffer (thread-safe).
@@ -464,13 +475,26 @@ public class VoiceChatRoom
         player.AddSamples(buf, decoded);
     }
 
+    // FIX Buffer for profile packets that arrive before the audio slot is created.
+    // Key = Hazel clientId, Value = most recent profile update for that client.
+    private readonly Dictionary<int, (byte PlayerId, string PlayerName)> _pendingProfiles = new();
+
     private void ProcessProfileUpdate(int senderId, byte playerId, string playerName)
     {
         if (_clients.TryGetValue(senderId, out var player))
         {
+            // Audio slot already exists – apply immediately.
             player.UpdateProfile(playerId, playerName);
             VoiceChatPluginMain.Logger.LogInfo(
                 $"[VC] Client {senderId}: id={playerId} name={playerName}");
+        }
+        else
+        {
+            // FIX Audio slot doesn't exist yet (profile arrived before any audio).
+            // Buffer it; ProcessAudioFrame will apply it when the slot is created.
+            _pendingProfiles[senderId] = (playerId, playerName);
+            VoiceChatPluginMain.Logger.LogInfo(
+                $"[VC] Buffered profile for future client {senderId}: id={playerId} name={playerName}");
         }
     }
 
@@ -491,6 +515,7 @@ public class VoiceChatRoom
             _clients.Remove(id);
             _decoders.Remove(id);
             _decodeBufs.Remove(id);
+            _pendingProfiles.Remove(id);
             _audioManager.Remove(id);
             VoiceChatPluginMain.Logger.LogInfo($"[VC] Client {id} pruned.");
         }
@@ -507,10 +532,6 @@ public class VoiceChatRoom
         return false;
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // Lifecycle
-    // ══════════════════════════════════════════════════════════════════════════
-
     public void Rejoin()
     {
         // Drain queues so stale data from the old game doesn't bleed in
@@ -524,6 +545,7 @@ public class VoiceChatRoom
             _decodeBufs.Remove(id);
         }
         _clients.Clear();
+        _pendingProfiles.Clear();
         VoiceChatPluginMain.Logger.LogInfo("[VC] Rejoin: state cleared.");
     }
 
@@ -548,6 +570,7 @@ public class VoiceChatRoom
         _clients.Clear();
         _decoders.Clear();
         _decodeBufs.Clear();
+        _pendingProfiles.Clear();
     }
 
     public bool TryGetPlayer(byte playerId, out VCPlayer? player)
@@ -557,10 +580,6 @@ public class VoiceChatRoom
         player = null;
         return false;
     }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // Local profile broadcast  (main thread)
-    // ══════════════════════════════════════════════════════════════════════════
 
     private void TryUpdateLocalProfile() => UpdateLocalProfile(false);
 

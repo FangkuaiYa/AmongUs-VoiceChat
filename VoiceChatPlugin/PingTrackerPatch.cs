@@ -31,11 +31,9 @@ public static class PingTrackerPatch
     // One slot per speaking player  (keyed by playerId)
     private static readonly Dictionary<byte, SpeakerSlot> _slots = new();
 
-    // ── PingTracker.Update postfix ─────────────────────────────────────────
     static void Postfix(PingTracker __instance)
     {
         if (__instance?.text == null) return;
-        __instance.text.text = string.Empty; // hide original ping text
 
         EnsureBar(__instance);
         if (_barRoot == null) return;
@@ -76,7 +74,6 @@ public static class PingTrackerPatch
         _barRoot.SetActive(speakingIds.Count > 0);
     }
 
-    // ── Bar root ────────────────────────────────────────────────────────────
     private static void EnsureBar(PingTracker template)
     {
         if (_barRoot != null && _barRoot) return;
@@ -92,7 +89,6 @@ public static class PingTrackerPatch
         _barRoot.SetActive(false);
     }
 
-    // ── Slot management ─────────────────────────────────────────────────────
     private static void AddSlot(byte playerId)
     {
         if (_barRoot == null) return;
@@ -128,7 +124,6 @@ public static class PingTrackerPatch
             }
         }
 
-        // ── Fallback: coloured circle + name text ───────────────────────────
         if (!gotIcon)
         {
             var circleGO = new GameObject("Circle");
@@ -141,7 +136,6 @@ public static class PingTrackerPatch
             slot.IconGO = circleGO;
         }
 
-        // ── Name label below the icon ────────────────────────────────────────
         string name = pc?.Data?.PlayerName ?? "?";
         var labelGO = new GameObject("Label");
         labelGO.transform.SetParent(_barRoot.transform, false);
@@ -186,7 +180,6 @@ public static class PingTrackerPatch
         }
     }
 
-    // ── HudManager.Start: reset when scenes reload ──────────────────────────
     [HarmonyPatch(typeof(HudManager), nameof(HudManager.Start))]
     private static class HudStartPatch
     {
@@ -204,7 +197,6 @@ public static class PingTrackerPatch
         }
     }
 
-    // ── Utilities ────────────────────────────────────────────────────────────
     private static PlayerControl? FindPlayer(byte id)
     {
         foreach (var pc in PlayerControl.AllPlayerControls)
@@ -243,7 +235,6 @@ public static class PingTrackerPatch
         return _circleSprite;
     }
 
-    // ── Inner type ───────────────────────────────────────────────────────────
     private class SpeakerSlot
     {
         public GameObject?   IconGO;

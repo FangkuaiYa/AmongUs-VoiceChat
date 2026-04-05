@@ -5,7 +5,7 @@ namespace VoiceChatPlugin.Reactor;
 /// </summary>
 public static class CustomStringName
 {
-    private static int _lastId = int.MinValue + 10086;
+    private static int _lastId = int.MinValue + 1;
 
     /// <summary>
     /// Creates an returns a unique <see cref="StringNames"/> value.

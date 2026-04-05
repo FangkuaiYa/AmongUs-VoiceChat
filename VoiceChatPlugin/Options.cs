@@ -100,38 +100,35 @@ namespace VoiceChatPlugin
 		[HarmonyPostfix]
 		static void GetValuePatch(IGameOptions gameOptions, BaseGameSetting data, ref float __result)
 		{
+			// FIX #3: Non-host clients must read from SyncedRoomSettings (updated by host RPC)
+			// rather than HostXxx config (which is only set locally on the host machine).
+			bool amHost = AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost;
+			var synced  = VoiceChatConfig.SyncedRoomSettings;
+
 			if (data.Type == OptionTypes.Checkbox && data.TryCast<CheckboxGameSetting>() != null)
 			{
 				var optName = data.Cast<CheckboxGameSetting>().OptionName;
-				if (optName == wallsBlockSoundBool)
-					__result = VoiceChatConfig.HostWallsBlockSound ? 1f : 0f;
-				else if (optName == onlyHearInSightBool)
-					__result = VoiceChatConfig.HostOnlyHearInSight ? 1f : 0f;
-				else if (optName == impostorHearGhostsBool)
-					__result = VoiceChatConfig.HostImpostorHearGhosts ? 1f : 0f;
-				else if (optName == hearInVentBool)
-					__result = VoiceChatConfig.HostHearInVent ? 1f : 0f;
-				else if (optName == ventPrivateChatBool)
-					__result = VoiceChatConfig.HostVentPrivateChat ? 1f : 0f;
-				else if (optName == commsSabDisablesBool)
-					__result = VoiceChatConfig.HostCommsSabDisables ? 1f : 0f;
-				else if (optName == cameraCanHearBool)
-					__result = VoiceChatConfig.HostCameraCanHear ? 1f : 0f;
-				else if (optName == impostorPrivateRadioBool)
-					__result = VoiceChatConfig.HostImpostorPrivateRadio ? 1f : 0f;
-				else if (optName == onlyGhostsCanTalkBool)
-					__result = VoiceChatConfig.HostOnlyGhostsCanTalk ? 1f : 0f;
-				else if (optName == onlyMeetingOrLobbyBool)
-					__result = VoiceChatConfig.HostOnlyMeetingOrLobby ? 1f : 0f;
+				bool? val = null;
+				if      (optName == wallsBlockSoundBool)      val = amHost ? VoiceChatConfig.HostWallsBlockSound      : synced.WallsBlockSound;
+				else if (optName == onlyHearInSightBool)      val = amHost ? VoiceChatConfig.HostOnlyHearInSight      : synced.OnlyHearInSight;
+				else if (optName == impostorHearGhostsBool)   val = amHost ? VoiceChatConfig.HostImpostorHearGhosts   : synced.ImpostorHearGhosts;
+				else if (optName == hearInVentBool)           val = amHost ? VoiceChatConfig.HostHearInVent           : synced.HearInVent;
+				else if (optName == ventPrivateChatBool)      val = amHost ? VoiceChatConfig.HostVentPrivateChat      : synced.VentPrivateChat;
+				else if (optName == commsSabDisablesBool)     val = amHost ? VoiceChatConfig.HostCommsSabDisables     : synced.CommsSabDisables;
+				else if (optName == cameraCanHearBool)        val = amHost ? VoiceChatConfig.HostCameraCanHear        : synced.CameraCanHear;
+				else if (optName == impostorPrivateRadioBool) val = amHost ? VoiceChatConfig.HostImpostorPrivateRadio : synced.ImpostorPrivateRadio;
+				else if (optName == onlyGhostsCanTalkBool)   val = amHost ? VoiceChatConfig.HostOnlyGhostsCanTalk    : synced.OnlyGhostsCanTalk;
+				else if (optName == onlyMeetingOrLobbyBool)  val = amHost ? VoiceChatConfig.HostOnlyMeetingOrLobby   : synced.OnlyMeetingOrLobby;
+				if (val.HasValue) __result = val.Value ? 1f : 0f;
 			}
 			else if (data.Type == OptionTypes.Float && data.TryCast<FloatGameSetting>() != null)
 			{
 				if (data.Cast<FloatGameSetting>().OptionName == maxDistanceFloat)
-					__result = VoiceChatConfig.HostMaxChatDistance;
+					__result = amHost ? VoiceChatConfig.HostMaxChatDistance : synced.MaxChatDistance;
 			}
 		}
 
-		[HarmonyPatch(typeof(NormalGameOptionsV10), nameof(NormalGameOptionsV10.SetBool))]
+				[HarmonyPatch(typeof(NormalGameOptionsV10), nameof(NormalGameOptionsV10.SetBool))]
 		[HarmonyPrefix]
 		static bool SetBoolPatch(NormalGameOptionsV10 __instance, BoolOptionNames optionName, bool value)
 		{
@@ -227,9 +224,19 @@ namespace VoiceChatPlugin
 			allCategories.System_Collections_IList_Add(voiceChatCategory);
 		}
 
+		// FIX #3: Hook both ChangeTab and SetTab so the scrollbar is extended whenever
+		// the tab is rebuilt – including forced refreshes after receiving the settings RPC.
 		[HarmonyPatch(typeof(LobbyViewSettingsPane), nameof(LobbyViewSettingsPane.ChangeTab))]
 		[HarmonyPostfix]
 		static void LobbyViewSettingsPaneChangeTabPatch(LobbyViewSettingsPane __instance)
+			=> ExtendScrollBar(__instance);
+
+		[HarmonyPatch(typeof(LobbyViewSettingsPane), nameof(LobbyViewSettingsPane.SetTab))]
+		[HarmonyPostfix]
+		static void LobbyViewSettingsPaneSetTabPatch(LobbyViewSettingsPane __instance)
+			=> ExtendScrollBar(__instance);
+
+		private static void ExtendScrollBar(LobbyViewSettingsPane instance)
 		{
 			if (voiceChatCategory == null) return;
 
@@ -240,7 +247,7 @@ namespace VoiceChatPlugin
 			const float trailingGap = 0.85f;
 			float extraHeight = headerHeight + rows * rowHeight + trailingGap;
 
-			__instance.scrollBar.SetYBoundsMax(__instance.scrollBar.ContentYBounds.max + extraHeight);
+			instance.scrollBar.SetYBoundsMax(instance.scrollBar.ContentYBounds.max + extraHeight);
 		}
 
 		private static CheckboxGameSetting CreateCheckbox(BoolOptionNames optionName, StringNames title)

@@ -139,15 +139,6 @@ public class VCPlayer
             return;
         }
 
-        if (VoiceChatPatches.IsImpostorRadioOnly && localImp)
-        {
-            bool hear = targetImp && !targetDead;
-            _normalVolume.Volume = 0f;
-            _ghostVolume.Volume  = 0f;
-            _radioVolume.Volume  = hear ? 1f : 0f;
-            return;
-        }
-
         _normalVolume.Volume = targetDead ? 0f : 1f;
         _ghostVolume.Volume  = 0f;
         _radioVolume.Volume  = 0f;
@@ -186,21 +177,12 @@ public class VCPlayer
             return;
         }
 
+        // FIX #2: ImpostorPrivateRadio is a host-configured room setting that creates a
         if (s.ImpostorPrivateRadio && localImp && targetImp && !targetDead)
         {
             _normalVolume.Volume = 0f;
             _ghostVolume.Volume  = 0f;
             _radioVolume.Volume  = 1f;
-            _imager.Pan          = 0f;
-            return;
-        }
-
-        if (VoiceChatPatches.IsImpostorRadioOnly && localImp)
-        {
-            bool hear = targetImp && !targetDead;
-            _normalVolume.Volume = 0f;
-            _ghostVolume.Volume  = 0f;
-            _radioVolume.Volume  = hear ? 1f : 0f;
             _imager.Pan          = 0f;
             return;
         }
