@@ -2,7 +2,7 @@ using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
-using System.Reflection;
+using VoiceChatPlugin.Reactor;
 
 namespace VoiceChatPlugin;
 
@@ -12,15 +12,18 @@ public class VoiceChatPluginMain : BasePlugin
 {
     public const string Id = "com.voicechatplugin.cn";
     public static ManualLogSource Logger { get; private set; } = null!;
+	public Harmony Harmony { get; } = new(Id);
 
-    public override void Load()
+	public override void Load()
     {
         Logger = Log;
         Logger.LogInfo("[VC] Loading VoiceChatPlugin (source-inlined, Hazel transport).");
 
+		LocalizationManager.Register(new HardCodedLocalizationProvider());
 		VoiceChat.VoiceChatConfig.Init(Config);
-        new Harmony(Id).PatchAll(Assembly.GetExecutingAssembly());
+		Options.SetupCustomSettings();
+		Harmony.PatchAll();
 
-        Logger.LogInfo("[VC] VoiceChatPlugin loaded.");
+		Logger.LogInfo("[VC] VoiceChatPlugin loaded.");
     }
 }

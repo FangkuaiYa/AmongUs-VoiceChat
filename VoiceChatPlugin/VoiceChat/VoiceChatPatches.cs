@@ -99,8 +99,7 @@ public static class VoiceChatPatches
             _spkButtonObj.transform.SetParent(__instance.transform, false);
             _spkButtonObj.SetActive(true);
         }
-        RepositionButtonsForMeeting();
-    }
+	}
 
     [HarmonyPostfix, HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.OnDestroy))]
     static void MeetingHud_Destroy_Post()
@@ -112,21 +111,6 @@ public static class VoiceChatPatches
         if (_spkButtonObj != null)
             _spkButtonObj.transform.SetParent(hud.transform.parent, false);
         ResetAspects();
-    }
-
-    private static void RepositionButtonsForMeeting()
-    {
-        // z=-10 ensures buttons render above all meeting card layers
-        if (_micButtonObj != null)
-        {
-            _micButtonObj.transform.localPosition = new Vector3(3.5f, 2.2f, -10f);
-            if (_micAspect != null) _micAspect.enabled = false;
-        }
-        if (_spkButtonObj != null)
-        {
-            _spkButtonObj.transform.localPosition = new Vector3(4.1f, 2.2f, -10f);
-            if (_spkAspect != null) _spkAspect.enabled = false;
-        }
     }
 
     private static void ResetAspects()
@@ -330,7 +314,8 @@ public static class VoiceChatPatches
         var go = new GameObject("VCIcon");
         go.transform.SetParent(parent.transform, false);
         go.transform.localPosition = Vector3.zero;
-        var sr = go.AddComponent<SpriteRenderer>();
+		go.layer = parent.layer;
+		var sr = go.AddComponent<SpriteRenderer>();
         sr.sprite       = LoadSpriteFromResources(resource, 900f);
         sr.sortingOrder = 5;
     }

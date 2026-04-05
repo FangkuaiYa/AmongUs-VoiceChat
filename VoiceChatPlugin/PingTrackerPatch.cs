@@ -17,7 +17,7 @@ namespace VoiceChatPlugin;
 /// Outside of meetings we fall back to coloured name-text because
 /// PoolablePlayer icons require the MeetingHud prefab chain to be alive.
 ///
-/// The original PingTracker ping/FPS text is hidden.
+/// The original PingTracker ping text is hidden.
 /// </summary>
 [HarmonyPatch(typeof(PingTracker), nameof(PingTracker.Update))]
 public static class PingTrackerPatch
