@@ -27,7 +27,7 @@ dotnet build -c Release
 
 Place the generated bin/Release/net6.0/VoiceChatPlugin.dll into your plugins/ folder.
 
-Note: With <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>, no dependency DLLs other than VoiceChatPlugin.dll are generated in the build output folder.
+Note: With ''<CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>'', no dependency DLLs other than VoiceChatPlugin.dll are generated in the build output folder.
 
 ## In-Game Controls
 
