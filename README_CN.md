@@ -4,7 +4,7 @@
 
 ## 安装
 
-从https://github.com/FangkuaiYa/AmongUs-VoiceChat/releases下载与您的客户端Among Us版本对应的插件。
+从https://github.com/FangkuaiYa/AmongUs-VoiceChat/releases 下载与您的客户端Among Us版本对应的插件。
 - 如果您下载的是zip文件，请注意Steam和Epic的字符，下载完成后将压缩包内的文件解压到游戏根目录，打开游戏即可。
 - 如果您下载的是dll文件，您需要事先为您的Among Us安装BepInEx，然后将下载好的dll放到/BepInEx/plugins文件夹。
   注意：1.0.0以后的版本需要使用Reactor Among Us插件，您可以在此处下载对应的Reactor.dll：https://github.com/NuclearPowered/Reactor/releases
