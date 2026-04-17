@@ -27,12 +27,14 @@ dotnet build -c Release
 
 将生成的bin/Release/net6.0/VoiceChatPlugin.dll放入您的plugins/文件夹。
 
-注意：当<CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>时，构建输出文件夹中不会生成除VoiceChatPlugin.dll以外的其他依赖DLL。
+> **注意:** 当 `<CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>`, 时，构建输出文件夹中不会生成除VoiceChatPlugin.dll以外的其他依赖DLL。  
 
 ## 游戏内控制
 
-按键：M
-功能：静音开/关
+| 按键 | 功能              |
+|-----|-----------------------|
+| `M` | Mute ON / OFF         |
+
 
 ## 贡献者
 
