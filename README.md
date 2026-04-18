@@ -1,22 +1,17 @@
-# VoiceChatPlugin
+# Voice Chat
 
-A standalone voice chat BepInEx plugin for Among Us.  
-By FangkuaiYa
-Some Tester: Elinmei Farewell TAIKongguo Imp11  
-Server Among Us (this Voice Chat function use Among Us Server)  
-**Just place the single `VoiceChatPlugin.dll` file into `BepInEx/plugins/` and it works.**
-
----
+A BepInEx plugin that provides voice chat functionality for Among Us.
 
 ## Installation
 
-```
-VoiceChatPlugin.dll  →  <Among Us>/BepInEx/plugins/
-```
+Download the plugin corresponding to your Among Us client version from https://github.com/FangkuaiYa/AmongUs-VoiceChat/releases
+- If you downloaded a zip file, please note the files for Steam and Epic versions. After downloading, extract all files from the archive into the game's root directory, then launch the game.
+- If you downloaded a dll file, you need to have BepInEx installed for Among Us beforehand, then place the downloaded dll into the /BepInEx/plugins folder.
+  Note: Versions 1.0.0 and later require the Reactor Among Us plugin. You can download the corresponding Reactor.dll from: https://github.com/NuclearPowered/Reactor/releases
 
-**That's it.** No other files are needed.
+## Usage
 
----
+After creating a room using a non-local server, you can enjoy voice chat!
 
 ## Build Instructions
 
@@ -27,29 +22,12 @@ VoiceChatPlugin.dll  →  <Among Us>/BepInEx/plugins/
 
 ### Steps
 
-```bash
 cd VoiceChatPlugin
 dotnet build -c Release
-```
 
-Place the generated `bin/Release/net6.0/VoiceChatPlugin.dll` into your `plugins/` folder.
+Place the generated bin/Release/net6.0/VoiceChatPlugin.dll into your plugins/ folder.
 
 > **Note:** With `<CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>`, no dependency DLLs other than `VoiceChatPlugin.dll` are **generated** in the build output folder.
-
----
-
-## Configuration File
-
-After the first launch, `BepInEx/config/VoiceChatPlugin.cfg` is generated.
-
-| Key                | Default               | Description                                      |
-|--------------------|----------------------|--------------------------------------------------|
-| `MicrophoneDevice` | (empty = OS default) | Microphone device name to use                    |
-| `SpeakerDevice`    | (empty = OS default) | Speaker device name to use (PC only)             |
-| `MasterVolume`     | `1.0`                | Output volume [0.0 – 2.0]                        |
-| `MicVolume`        | `1.0`                | Microphone input volume [0.0 – 2.0]              |
-
----
 
 ## In-Game Controls
 
@@ -57,28 +35,14 @@ After the first launch, `BepInEx/config/VoiceChatPlugin.cfg` is generated.
 |-----|-----------------------|
 | `M` | Mute ON / OFF         |
 
----
+## Contributors
 
-## Dependent Libraries (all embedded inside the DLL)
+- ThreeXThreeTeam (https://github.com/ThreeXThreeTeam) - A development team created by TAIKongguo, providing Among Us servers for mainland China, etc.
+- Nebula on the Ship (https://github.com/Dolly1016/Nebula) - by Dolly, reference base code for voice chat functionality.
+- NAudio (https://github.com/naudio/NAudio) - Audio and MIDI library for .NET.
+- Concentus (https://github.com/lostromb/concentus) - Pure portable C#/Java/Golang implementations of the Opus audio codec.
+- BetterCrewLink (https://github.com/OhMyGuus/BetterCrewlink) - Inspiration for some settings and features.
 
-| Library                                         | Purpose                  |
-|-------------------------------------------------|--------------------------|
-| None | None |
+## Testers
 
----
-
-## Project Structure
-
-```
-VoiceChatPlugin/
-├── VoiceChatPlugin.csproj       ← Embeds all DLLs as EmbeddedResource
-├── VoiceChatPluginMain.cs       ← AssemblyResolve hook + BepInEx entry point
-├── ………………
-└── VoiceChat/
-    ├── ……………………
-    ├── VoiceComponent.cs        ← IVoiceComponent interface
-    ├── VoiceChatConfig.cs       ← BepInEx ConfigEntry based settings
-    ├── VoiceChatRoom.cs         ← Room management & audio routing
-    ├── VCPlayer.cs              ← Per-client volume control
-    └── VoiceChatPatches.cs      ← Harmony patches
-```
+Elinmei, TAIKongguo, Farewell……
