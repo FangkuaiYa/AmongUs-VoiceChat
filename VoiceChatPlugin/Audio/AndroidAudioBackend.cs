@@ -40,8 +40,13 @@ public sealed class AndroidMicrophoneInput : IDisposable
 
     public void Start()
     {
-        string device = string.IsNullOrEmpty(DeviceName) ? null! : DeviceName;
-        _clip      = Microphone.Start(device, loop: true, lengthSec: ClipSeconds, SampleRate);
+        // Nebula pattern: never pass null to Microphone.Start on Android IL2CPP.
+        // Fall back to the first enumerated device when no device is configured.
+        string device = string.IsNullOrEmpty(DeviceName)
+            ? (Microphone.devices.Length > 0 ? Microphone.devices[0] : "")
+            : DeviceName;
+        DeviceName = device;
+        _clip      = Microphone.Start(device, true, ClipSeconds, SampleRate);
         _lastPos   = 0;
         _recording = true;
     }
@@ -49,7 +54,8 @@ public sealed class AndroidMicrophoneInput : IDisposable
     public void Stop()
     {
         _recording = false;
-        Microphone.End(string.IsNullOrEmpty(DeviceName) ? null! : DeviceName);
+        if (!string.IsNullOrEmpty(DeviceName))
+            Microphone.End(DeviceName);
         _clip = null;
     }
 
@@ -61,7 +67,7 @@ public sealed class AndroidMicrophoneInput : IDisposable
     {
         if (!_recording || _clip == null) return;
 
-        int pos = Microphone.GetPosition(string.IsNullOrEmpty(DeviceName) ? null! : DeviceName);
+        int pos = Microphone.GetPosition(string.IsNullOrEmpty(DeviceName) ? "" : DeviceName);
         if (pos < 0) return;
 
         int newSamples = pos >= _lastPos

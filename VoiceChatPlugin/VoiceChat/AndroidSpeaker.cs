@@ -47,6 +47,18 @@ internal sealed class AndroidSpeaker : IDisposable
 
     public bool IsPlaying => _audioSource != null && _audioSource.isPlaying;
 
+    // Master volume [0, 2]. Called by VoiceChatRoom.SetMasterVolume().
+    private float _masterVolume = 1f;
+
+    public void SetMasterVolume(float v)
+    {
+        _masterVolume = Math.Clamp(v, 0f, 2f);
+        if (_audioSource != null)
+            _audioSource.volume = Math.Clamp(v, 0f, 1f);
+        // Drain the ring on mute to prevent residual audio on unmute
+        if (_masterVolume <= 0f) _readPos = _writePos;
+    }
+
     /// <summary>
     /// Create and immediately start the Android speaker output.
     /// <paramref name="hostTransform"/> should be a persistent scene object

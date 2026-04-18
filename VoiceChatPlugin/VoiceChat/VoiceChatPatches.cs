@@ -33,10 +33,7 @@ public static class VoiceChatPatches
     private static readonly Vector3 MicEdge = new(3.85f, 0.55f, 0f);
     private static readonly Vector3 SpkEdge = new(4.50f, 0.55f, 0f);
 
-    // ── Tooltip: attached to HudManager root, not button child ───────────────
-    // Parenting tooltip to the button causes it to inherit AspectPosition
-    // transforms and scale, making it appear at wrong world positions.
-    // Instead we anchor it to hud.transform.parent and reposition each frame.
+    // ── Tooltip ───────────────────────────────────────────────────────────────
     private static GameObject?  _micTooltip;
     private static GameObject?  _spkTooltip;
     private static TextMeshPro? _micTooltipTmp;
@@ -53,10 +50,7 @@ public static class VoiceChatPatches
     private static VoiceChatRoomSettings? _lastSentSettings;
     public static void MarkRoomSettingsDirty() => _lastSentSettings = null;
 
-    // ── HudManager.Start: recreate buttons when a new HUD is born ────────────
-    // This fires every time the HUD scene is (re)loaded, including going back
-    // to the lobby. We destroy old buttons here so EnsureHudButtons creates
-    // fresh ones attached to the correct HUD instance.
+    // ── HudManager.Start ──────────────────────────────────────────────────────
     [HarmonyPostfix, HarmonyPatch(typeof(HudManager), nameof(HudManager.Start))]
     static void HudStart_Post(HudManager __instance)
     {
@@ -65,6 +59,10 @@ public static class VoiceChatPatches
     }
 
     // ── HudManager.Update ─────────────────────────────────────────────────────
+    // Nebula パターン: 毎フレーム接続状態を確認し、必要ならルームを自動起動/停止する。
+    // OnGameJoined などのイベントには依存しない。
+    // Nebula pattern: check connection state every frame, auto-start/stop the room.
+    // Does NOT rely on OnGameJoined or any other one-shot lifecycle event.
     [HarmonyPostfix, HarmonyPatch(typeof(HudManager), nameof(HudManager.Update))]
     static void HudUpdate_Post(HudManager __instance)
     {
@@ -72,6 +70,34 @@ public static class VoiceChatPatches
         EnsureTooltips(__instance);
         UpdateHudButtonsVisibility();
         RefreshButtonVisuals();
+
+        // --- Nebula-style room lifecycle ---
+        bool shouldUseVC = AmongUsClient.Instance != null
+            && AmongUsClient.Instance.GameState == InnerNet.InnerNetClient.GameStates.Joined
+            && AmongUsClient.Instance.networkAddress is not ("127.0.0.1" or "localhost");
+
+        if (!shouldUseVC)
+        {
+            // Not in an online game – tear down the room if one exists.
+            if (VoiceChatRoom.Current != null)
+                VoiceChatRoom.CloseCurrentRoom();
+            return;
+        }
+
+        // In an online game: start the room if it doesn't exist yet.
+        // Crucially we do NOT wait for PlayerControl.LocalPlayer – Nebula never does.
+        if (VoiceChatRoom.Current == null)
+        {
+            VoiceChatRoom.Start();
+            ApplyMicState();
+            if (_speakerMuted)
+                VoiceChatRoom.Current?.SetMasterVolume(0f);
+            if (AmongUsClient.Instance!.AmHost)
+            {
+                VoiceChatConfig.ApplyLocalHostSettingsToSynced();
+                _lastSentSettings = null;
+            }
+        }
 
         if (VoiceChatRoom.Current == null) return;
 
@@ -85,7 +111,7 @@ public static class VoiceChatPatches
         { VoiceChatPluginMain.Logger.LogError("[VC] Update error: " + ex); }
     }
 
-    // ── MeetingHud: re-parent buttons so they appear inside meeting UI ────────
+    // ── MeetingHud: re-parent buttons ────────────────────────────────────────
     [HarmonyPostfix, HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
     static void MeetingHud_Start_Post(MeetingHud __instance)
     {
@@ -99,7 +125,7 @@ public static class VoiceChatPatches
             _spkButtonObj.transform.SetParent(__instance.transform, false);
             _spkButtonObj.SetActive(true);
         }
-	}
+    }
 
     [HarmonyPostfix, HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.OnDestroy))]
     static void MeetingHud_Destroy_Post()
@@ -132,33 +158,8 @@ public static class VoiceChatPatches
     }
 
     // ── Game lifecycle ────────────────────────────────────────────────────────
-    [HarmonyPostfix, HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.OnGameJoined))]
-    static void OnGameJoined_Post(AmongUsClient __instance)
-    {
-        if (AmongUsClient.Instance == null) return;
-        if (__instance.networkAddress is "127.0.0.1" or "localhost") return;
-
-        VoiceChatRoom.Start();
-        ApplyMicState();
-#if ANDROID
-        // On Android the speaker needs the HUD transform, which is live by this point.
-        if (HudManager.InstanceExists && HudManager.Instance)
-            VoiceChatRoom.Current?.InitAndroidSpeaker(HudManager.Instance.transform);
-#endif
-        // Broadcast our mod GUID to other players so they can confirm compatibility.
-        ModdedRoomManager.SendHandshake();
-
-        if (__instance.AmHost)
-        {
-            VoiceChatConfig.ApplyLocalHostSettingsToSynced();
-            _lastSentSettings = null;
-            TrySyncHostRoomSettings();
-        }
-
-        if (_speakerMuted)
-            VoiceChatRoom.Current?.SetMasterVolume(0f);
-    }
-
+    // Room start/stop is now handled entirely by HudUpdate_Post (Nebula pattern).
+    // ExitGame still needs explicit cleanup to reset state cleanly.
     [HarmonyPostfix, HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.ExitGame))]
     static void ExitGame_Post()
     {
@@ -183,7 +184,7 @@ public static class VoiceChatPatches
         VoiceChatPluginMain.Logger.LogInfo("[VC] Game ended: VC room rejoined.");
     }
 
-    // ── Keyboard shortcuts (Windows only; Android has no physical keyboard) ────
+    // ── Keyboard shortcuts (Windows only) ────────────────────────────────────
 #if WINDOWS
     [HarmonyPostfix, HarmonyPatch(typeof(KeyboardJoystick), nameof(KeyboardJoystick.Update))]
     static void KeyboardUpdate_Post()
@@ -212,8 +213,6 @@ public static class VoiceChatPatches
         _spkTooltipTmp = null;
     }
 
-    // EnsureTooltips: create tooltip GameObjects parented to HUD root (not button).
-    // This avoids inheriting AspectPosition / button scale transforms.
     private static void EnsureTooltips(HudManager hud)
     {
         if (_micTooltip == null)
@@ -231,8 +230,6 @@ public static class VoiceChatPatches
             _micButtonObj      = Object.Instantiate(hud.MapButton.gameObject, hud.transform.parent);
             _micButtonObj.name = "VC_MicButton";
             ClearButtonBG(_micButtonObj);
-            //SetChildSprite(_micButtonObj, "Inactive", "VoiceChatPlugin.Resources.MicOn.png");
-            //SetChildSprite(_micButtonObj, "Active",   "VoiceChatPlugin.Resources.MicOn.png");
             CreateIconChild(_micButtonObj, "VoiceChatPlugin.Resources.MicOn.png");
 
             _micButton = _micButtonObj.GetComponent<PassiveButton>();
@@ -255,8 +252,6 @@ public static class VoiceChatPatches
             _spkButtonObj      = Object.Instantiate(hud.MapButton.gameObject, hud.transform.parent);
             _spkButtonObj.name = "VC_SpkButton";
             ClearButtonBG(_spkButtonObj);
-            //SetChildSprite(_spkButtonObj, "Inactive", "VoiceChatPlugin.Resources.SpeakerOn.png");
-            //SetChildSprite(_spkButtonObj, "Active",   "VoiceChatPlugin.Resources.SpeakerOn.png");
             CreateIconChild(_spkButtonObj, "VoiceChatPlugin.Resources.SpeakerOn.png");
 
             _spkButton = _spkButtonObj.GetComponent<PassiveButton>();
@@ -308,30 +303,18 @@ public static class VoiceChatPatches
             sr.color = new Color(0f, 0f, 0f, 0f);
     }
 
-    private static void SetChildSprite(GameObject btn, string childName, string resource)
-    {
-        var child = btn.transform.Find(childName);
-        if (child == null) return;
-        var sr = child.GetComponent<SpriteRenderer>();
-        if (sr == null) return;
-        sr.sprite = LoadSpriteFromResources(resource, 900f);
-        sr.color  = Color.white;
-    }
-
     private static void CreateIconChild(GameObject parent, string resource)
     {
         var go = new GameObject("VCIcon");
         go.transform.SetParent(parent.transform, false);
         go.transform.localPosition = Vector3.zero;
-		go.layer = parent.layer;
-		var sr = go.AddComponent<SpriteRenderer>();
+        go.layer = parent.layer;
+        var sr = go.AddComponent<SpriteRenderer>();
         sr.sprite       = LoadSpriteFromResources(resource, 900f);
         sr.sortingOrder = 5;
     }
 
     // ── Tooltip ───────────────────────────────────────────────────────────────
-    // Parented to HUD root so it uses the same world-space coordinate system
-    // as the buttons, unaffected by button-level transforms or AspectPosition.
     private static GameObject CreateTooltipObject(Transform hudRoot, out TextMeshPro tmp)
     {
         var go = new GameObject("VC_Tooltip");
@@ -368,11 +351,9 @@ public static class VoiceChatPatches
         return Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f));
     }
 
-    // Position the tooltip near the button in world space
     private static void PositionTooltipNearButton(GameObject tooltip, GameObject button)
     {
         if (tooltip == null || button == null) return;
-        // Place the tooltip to the left and slightly below the button
         var btnWorld = button.transform.position;
         tooltip.transform.position = new Vector3(
             btnWorld.x - 0.2f,
@@ -434,7 +415,6 @@ public static class VoiceChatPatches
     }
 
     // ── Mic state machine ─────────────────────────────────────────────────────
-    // Left-click cycles: All -> Impostor (impostor only) -> Muted -> All
     private static void CycleMic()
     {
         bool canImpMode = PlayerControl.LocalPlayer != null

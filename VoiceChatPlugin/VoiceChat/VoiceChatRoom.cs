@@ -85,8 +85,8 @@ public class VoiceChatRoom
     private WaveInEvent? _waveIn;
     public bool UsingMicrophone => _waveIn != null;
 #elif ANDROID
-    private AndroidMicrophone? _androidMic;
-    public bool UsingMicrophone => _androidMic?.IsCapturing ?? false;
+    private AndroidMicrophoneInput? _androidMic;
+    public bool UsingMicrophone => _androidMic != null;
 #else
     public bool UsingMicrophone => false;
 #endif
@@ -182,13 +182,13 @@ public class VoiceChatRoom
 #if WINDOWS
         SetSpeaker(VoiceChatConfig.SpeakerDevice);
 #elif ANDROID
-        var hostTransform = HudManager.InstanceExists && HudManager.Instance
-            ? HudManager.Instance.transform
-            : null;
-        if (hostTransform != null)
-            InitAndroidSpeaker(hostTransform);
+        // Nebula pattern: use the persistent ResidentObject (DontDestroyOnLoad) as the
+        // AudioSource host so the speaker is never accidentally destroyed when
+        // HudManager rebuilds on scene transitions.
+        if (VoiceChatPluginMain.ResidentObject != null)
+            InitAndroidSpeaker(VoiceChatPluginMain.ResidentObject.transform);
         else
-            VoiceChatPluginMain.Logger.LogWarning("[VC] Android: HudManager not yet available; speaker will init on first HUD start.");
+            VoiceChatPluginMain.Logger.LogWarning("[VC] Android: ResidentObject not available.");
 #endif
 
         VoiceChatPluginMain.Logger.LogInfo("[VC] VoiceChatRoom constructed (Hazel transport).");
@@ -198,12 +198,22 @@ public class VoiceChatRoom
     // Device control  (called from Unity main thread)
     // ======================================================================
 
-    public void SetMasterVolume(float v) => _masterVolumeProperty.Volume = v;
+    public void SetMasterVolume(float v)
+    {
+        _masterVolumeProperty.Volume = v;
+#if ANDROID
+        _androidSpeaker?.SetMasterVolume(v);
+#endif
+    }
 
     public void SetMicVolume(float v) => _micVolume = Math.Clamp(v, 0f, 2f);
 
-    public void SetMute(bool mute) => Mute = mute;
-    public void ToggleMute()       => SetMute(!Mute);
+    public void SetMute(bool mute)
+    {
+        Mute = mute;
+        if (mute) _localMicLevel = 0f;
+    }
+    public void ToggleMute() => SetMute(!Mute);
     public void SetLoopBack(bool lb) { }
 
     // Microphone
@@ -270,14 +280,13 @@ public class VoiceChatRoom
             _encoder?.Dispose();
 
             _encoder    = AudioHelpers.GetOpusEncoder();
-            _androidMic = new AndroidMicrophone();
-            bool ok = _androidMic.Start(deviceName);
-            if (!ok)
-            {
-                VoiceChatPluginMain.Logger.LogWarning("[VC] Android mic: no device available.");
-                _androidMic = null;
-                _encoder    = null;
-            }
+            _androidMic = new AndroidMicrophoneInput();
+            _androidMic.SetDevice(deviceName ?? "");
+            _androidMic.DataAvailable += OnAndroidMicData;
+            _androidMic.Start();
+
+            VoiceChatPluginMain.Logger.LogInfo(
+                $"[VC] Android mic started: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
         }
         catch (Exception ex)
         {
@@ -356,7 +365,11 @@ public class VoiceChatRoom
 #if WINDOWS
     private void OnMicDataAvailableWindows(object? sender, WaveInEventArgs e)
     {
-        if (Mute || _encoder == null) return;
+        if (Mute || _encoder == null)
+        {
+            _localMicLevel = 0f;
+            return;
+        }
 
         int samples = e.BytesRecorded / 2;
         if (_pcmConvertBuf == null || _pcmConvertBuf.Length != samples)
@@ -377,25 +390,34 @@ public class VoiceChatRoom
 #endif
 
 #if ANDROID
-    private void OnAndroidMicFrame(float[] samples, int offset)
+    // DataAvailable callback from AndroidMicrophoneInput - fires on main thread via Tick().
+    private void OnAndroidMicData(float[] buf, int length)
     {
-        if (Mute || _encoder == null) return;
+        if (Mute || _encoder == null)
+        {
+            _localMicLevel = 0f;
+            return;
+        }
 
         const int frameSize = 960; // 20 ms @ 48 kHz
-        if (_pcmConvertBuf == null || _pcmConvertBuf.Length < frameSize)
-            _pcmConvertBuf = new float[frameSize];
-
-        float level = 0f;
-        for (int i = 0; i < frameSize; i++)
+        int offset = 0;
+        while (offset + frameSize <= length)
         {
-            float s = samples[offset + i] * _micVolume;
-            _pcmConvertBuf[i] = s;
-            float abs = s < 0 ? -s : s;
-            if (abs > level) level = abs;
-        }
-        _localMicLevel = level;
+            if (_pcmConvertBuf == null || _pcmConvertBuf.Length < frameSize)
+                _pcmConvertBuf = new float[frameSize];
 
-        EncodeAndEnqueue(_pcmConvertBuf, frameSize);
+            float level = 0f;
+            for (int i = 0; i < frameSize; i++)
+            {
+                float s = buf[offset + i] * _micVolume;
+                _pcmConvertBuf[i] = s;
+                float abs = s < 0 ? -s : s;
+                if (abs > level) level = abs;
+            }
+            _localMicLevel = level;
+            EncodeAndEnqueue(_pcmConvertBuf, frameSize);
+            offset += frameSize;
+        }
     }
 #endif
 
@@ -437,12 +459,9 @@ public class VoiceChatRoom
     public void Update()
     {
 #if ANDROID
-        // Poll Unity Microphone API (main thread, Android only)
+        // Poll Unity Microphone API (main thread, Android only).
+        // Speaker is created once in constructor via ResidentObject (Nebula pattern).
         PollAndroidMic();
-
-        // Lazily initialise Android speaker once HUD is live
-        if (_androidSpeaker == null && HudManager.InstanceExists && HudManager.Instance)
-            InitAndroidSpeaker(HudManager.Instance.transform);
 #endif
 
         DrainSendQueue();
@@ -491,9 +510,7 @@ public class VoiceChatRoom
 #if ANDROID
     private void PollAndroidMic()
     {
-        _androidMic?.Poll(OnAndroidMicFrame);
-        if (_androidMic != null)
-            _localMicLevel = _androidMic.Level;
+        _androidMic?.Tick();
     }
 #endif
 
@@ -660,7 +677,8 @@ public class VoiceChatRoom
         try { _waveIn?.Dispose(); } catch { }
         _waveIn = null;
 #elif ANDROID
-        try { _androidMic?.Stop(); _androidMic?.Dispose(); } catch { }
+        try { _androidMic?.Stop(); } catch { }
+        try { _androidMic?.Dispose(); } catch { }
         _androidMic = null;
         try { _androidSpeaker?.Dispose(); } catch { }
         _androidSpeaker = null;
