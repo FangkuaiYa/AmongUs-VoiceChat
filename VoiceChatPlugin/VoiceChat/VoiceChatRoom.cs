@@ -1,8 +1,11 @@
-using VoiceChatPlugin.Concentus;
+using Concentus;
 using Hazel;
 using HarmonyLib;
 using VoiceChatPlugin.Audio;
-using VoiceChatPlugin.NAudio.Wave;
+#if WINDOWS
+using NAudio.Wave;
+using NAudio.CoreAudioApi;
+#endif
 using UnityEngine;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -17,40 +20,36 @@ namespace VoiceChatPlugin.VoiceChat;
 /// Audio transport runs entirely over the existing Among Us / Impostor game
 /// server via PlayerControl RPC ID 203.  No separate voice server is needed.
 ///
-/// Outgoing pipeline:
-///   WaveInEvent  (PCM 48 kHz mono, 16-bit, on WaveIn callback thread)
+/// Platform support:
+///   WINDOWS  - Outgoing mic: NAudio WaveInEvent on its own callback thread.
+///              Incoming speaker: NAudio WasapiOut on its own playback thread.
+///   ANDROID  - Outgoing mic: Unity Microphone API polled each frame (main thread).
+///              Incoming speaker: Unity AudioSource + streaming AudioClip
+///              (PCMReaderCallback on Unity audio thread).
+///
+/// Outgoing pipeline (both platforms):
+///   PCM float samples (48 kHz mono)
 ///   -> Opus encode
 ///   -> enqueue into _sendQueue  (thread-safe)
 ///   -> dequeued on Unity main thread and sent via Hazel RPC
 ///
-/// Incoming pipeline:
+/// Incoming pipeline (both platforms):
 ///   RPC 203 arrives (on Hazel network thread)
 ///   -> enqueue into _receiveQueue  (thread-safe)
 ///   -> dequeued on Unity main thread in Update()
 ///   -> Opus decode (per-client decoder, own float[] buffer)
-///   -> AudioRoutingInstance.AddSamples()
+///   -> AudioRoutingInstance.AddSamples() + AndroidSpeaker.WriteMono() [ANDROID]
 ///   -> audio routing graph (volume, stereo, ghost reverb, radio)
-///   -> WasapiOut (WASAPI shared mode, own playback thread)
-///
-/// Threading model
-/// ───────────────
-///  • Unity main thread  : Update(), profile broadcast, RPC send
-///  • WaveIn thread      : OnMicDataAvailable()  – enqueues only
-///  • Hazel recv thread  : AudioRpcPatch.Postfix() – enqueues only
-///  • WasapiOut thread   : reads audio graph (AudioManager/ISampleProvider chain)
-///
-/// All mutable shared state (_clients, _decoders, _audioManager) is accessed
-/// exclusively on the Unity main thread.  Cross-thread communication uses
-/// ConcurrentQueue so no locks are needed in hot paths.
+///   -> WasapiOut playback thread [WINDOWS] / Unity AudioSource [ANDROID]
 /// </summary>
 public class VoiceChatRoom
 {
     internal const byte AudioRpcId = 203;
 
-    // ── Singleton ──────────────────────────────────────────────────────────────
+    // Singleton
     public static VoiceChatRoom? Current { get; private set; }
 
-    // ── Audio routing graph (accessed only from Unity main thread + WasapiOut) ─
+    // Audio routing graph
     private readonly AudioManager          _audioManager;
     private readonly VolumeRouter.Property _masterVolumeProperty;
 
@@ -58,15 +57,14 @@ public class VoiceChatRoom
     private readonly VolumeRouter     _normalVolume, _ghostVolume, _radioVolume, _clientVolume;
     private readonly LevelMeterRouter _levelMeter;
 
-    // ── Remote clients – Unity main thread only ────────────────────────────────
-    private readonly Dictionary<int, VCPlayer>     _clients  = new();
-    // Per-client decoders and per-client decode buffers to avoid sharing
-    private readonly Dictionary<int, IOpusDecoder> _decoders = new();
+    // Remote clients - Unity main thread only
+    private readonly Dictionary<int, VCPlayer>     _clients    = new();
+    private readonly Dictionary<int, IOpusDecoder> _decoders   = new();
     private readonly Dictionary<int, float[]>      _decodeBufs = new();
 
     public IEnumerable<VCPlayer> AllClients => _clients.Values;
 
-    // ── Virtual components (camera / vent) ─────────────────────────────────────
+    // Virtual components (camera / vent)
     private readonly List<IVoiceComponent> _virtualMics     = new();
     private readonly List<IVoiceComponent> _virtualSpeakers = new();
     public void AddVirtualMicrophone(IVoiceComponent c)    => _virtualMics.Add(c);
@@ -74,40 +72,52 @@ public class VoiceChatRoom
     public void RemoveVirtualMicrophone(IVoiceComponent c) => _virtualMics.Remove(c);
     public void RemoveVirtualSpeaker(IVoiceComponent c)    => _virtualSpeakers.Remove(c);
 
-    // ── Microphone (WaveIn thread writes; main thread reads _sendQueue) ────────
-    private WaveInEvent?  _waveIn;
+    // Microphone - platform-specific capture backend
     private IOpusEncoder? _encoder;
     private float[]       _pcmConvertBuf = null!;
     private readonly byte[] _encodeBuffer = new byte[4096];
     private float _micVolume = 1f;
 
-    // Encoded packets queued from WaveIn thread, drained on main thread
+    // Encoded packets queued from mic capture path, drained on main thread
     private readonly ConcurrentQueue<byte[]> _sendQueue = new();
 
-    public bool  UsingMicrophone => _waveIn != null;
+#if WINDOWS
+    private WaveInEvent? _waveIn;
+    public bool UsingMicrophone => _waveIn != null;
+#elif ANDROID
+    private AndroidMicrophone? _androidMic;
+    public bool UsingMicrophone => _androidMic?.IsCapturing ?? false;
+#else
+    public bool UsingMicrophone => false;
+#endif
+
     public float LocalMicLevel   => _localMicLevel;
     private volatile float _localMicLevel;
-    public bool  Mute  { get; private set; }
-    public int   SampleRate => AudioHelpers.ClockRate;
+    public bool Mute  { get; private set; }
+    public int  SampleRate => AudioHelpers.ClockRate;
 
-    // ── Speaker ────────────────────────────────────────────────────────────────
+    // Speaker - platform-specific output backend
+#if WINDOWS
     private WasapiOut? _waveOut;
+#elif ANDROID
+    private AndroidSpeaker? _androidSpeaker;
+#endif
 
-    // ── Incoming packet queue: Hazel thread -> main thread ─────────────────────
+    // Incoming packet queue: Hazel thread -> main thread
     private readonly record struct IncomingPacket(int SenderId, byte PacketType, byte[] Data, byte PlayerId, string PlayerName);
     private readonly ConcurrentQueue<IncomingPacket> _receiveQueue = new();
 
-    // ── Comms sabotage cache ───────────────────────────────────────────────────
+    // Comms sabotage cache
     private bool  _commsSabActive;
     private float _commsSabCheckTimer;
 
-    // ── Local profile tracking ─────────────────────────────────────────────────
+    // Local profile tracking
     private byte   _lastId   = byte.MaxValue;
     private string _lastName = null!;
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
     // Factory
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
 
     public static VoiceChatRoom Start()
     {
@@ -122,9 +132,9 @@ public class VoiceChatRoom
         Current = null;
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
     // Constructor
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
 
     private VoiceChatRoom()
     {
@@ -168,14 +178,25 @@ public class VoiceChatRoom
         SetMasterVolume(VoiceChatConfig.MasterVolume);
 
         SetMicrophone(VoiceChatConfig.MicrophoneDevice);
+
+#if WINDOWS
         SetSpeaker(VoiceChatConfig.SpeakerDevice);
+#elif ANDROID
+        var hostTransform = HudManager.InstanceExists && HudManager.Instance
+            ? HudManager.Instance.transform
+            : null;
+        if (hostTransform != null)
+            InitAndroidSpeaker(hostTransform);
+        else
+            VoiceChatPluginMain.Logger.LogWarning("[VC] Android: HudManager not yet available; speaker will init on first HUD start.");
+#endif
 
         VoiceChatPluginMain.Logger.LogInfo("[VC] VoiceChatRoom constructed (Hazel transport).");
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
     // Device control  (called from Unity main thread)
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
 
     public void SetMasterVolume(float v) => _masterVolumeProperty.Volume = v;
 
@@ -185,7 +206,19 @@ public class VoiceChatRoom
     public void ToggleMute()       => SetMute(!Mute);
     public void SetLoopBack(bool lb) { }
 
+    // Microphone
+
     public void SetMicrophone(string deviceName)
+    {
+#if WINDOWS
+        SetMicrophoneWindows(deviceName);
+#elif ANDROID
+        SetMicrophoneAndroid(deviceName);
+#endif
+    }
+
+#if WINDOWS
+    private void SetMicrophoneWindows(string deviceName)
     {
         try
         {
@@ -212,20 +245,52 @@ public class VoiceChatRoom
                 BufferMilliseconds = 20,
                 NumberOfBuffers    = 4,
             };
-            _waveIn.DataAvailable += OnMicDataAvailable;
+            _waveIn.DataAvailable += OnMicDataAvailableWindows;
             _waveIn.StartRecording();
 
             VoiceChatPluginMain.Logger.LogInfo(
-                $"[VC] Mic: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
+                $"[VC] Windows mic: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
         }
         catch (Exception ex)
         {
-            VoiceChatPluginMain.Logger.LogError($"[VC] Mic init failed: {ex.Message}");
+            VoiceChatPluginMain.Logger.LogError($"[VC] Windows mic init failed: {ex.Message}");
             _waveIn  = null;
             _encoder = null;
         }
     }
+#endif
 
+#if ANDROID
+    private void SetMicrophoneAndroid(string deviceName)
+    {
+        try
+        {
+            _androidMic?.Stop();
+            _androidMic?.Dispose();
+            _encoder?.Dispose();
+
+            _encoder    = AudioHelpers.GetOpusEncoder();
+            _androidMic = new AndroidMicrophone();
+            bool ok = _androidMic.Start(deviceName);
+            if (!ok)
+            {
+                VoiceChatPluginMain.Logger.LogWarning("[VC] Android mic: no device available.");
+                _androidMic = null;
+                _encoder    = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            VoiceChatPluginMain.Logger.LogError($"[VC] Android mic init failed: {ex.Message}");
+            _androidMic = null;
+            _encoder    = null;
+        }
+    }
+#endif
+
+    // Speaker
+
+#if WINDOWS
     public void SetSpeaker(string deviceName)
     {
         try
@@ -241,43 +306,56 @@ public class VoiceChatRoom
                 return;
             }
 
-            var enumerator = new VoiceChatPlugin.NAudio.CoreAudioApi.MMDeviceEnumerator();
-            VoiceChatPlugin.NAudio.CoreAudioApi.MMDevice? device = null;
+            var enumerator = new MMDeviceEnumerator();
+            MMDevice? device = null;
             if (!string.IsNullOrEmpty(deviceName))
             {
-                foreach (var d in enumerator.EnumerateAudioEndPoints(
-                             VoiceChatPlugin.NAudio.CoreAudioApi.DataFlow.Render,
-                             VoiceChatPlugin.NAudio.CoreAudioApi.DeviceState.Active))
+                foreach (var d in enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
                 {
                     if (d.FriendlyName == deviceName) { device = d; break; }
                 }
             }
-            device ??= enumerator.GetDefaultAudioEndpoint(
-                VoiceChatPlugin.NAudio.CoreAudioApi.DataFlow.Render,
-                VoiceChatPlugin.NAudio.CoreAudioApi.Role.Multimedia);
+            device ??= enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
 
-            _waveOut = new WasapiOut(device, VoiceChatPlugin.NAudio.CoreAudioApi.AudioClientShareMode.Shared, false, 50);
+            _waveOut = new WasapiOut(device, AudioClientShareMode.Shared, false, 50);
             _waveOut.Init(ep);
             _waveOut.Play();
 
             VoiceChatPluginMain.Logger.LogInfo(
-                $"[VC] Speaker: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
+                $"[VC] Windows speaker: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
         }
         catch (Exception ex)
         {
-            VoiceChatPluginMain.Logger.LogError($"[VC] Speaker init failed: {ex.Message}");
+            VoiceChatPluginMain.Logger.LogError($"[VC] Windows speaker init failed: {ex.Message}");
             _waveOut = null;
         }
     }
+#endif
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // Outgoing: WaveIn thread → encode → enqueue (never touches AU client)
-    // ══════════════════════════════════════════════════════════════════════════
-
-    private void OnMicDataAvailable(object? sender, WaveInEventArgs e)
+#if ANDROID
+    internal void InitAndroidSpeaker(Transform hostTransform)
     {
-        // This runs on the WaveIn callback thread.
-        // MUST NOT call any Unity / IL2CPP / AmongUsClient methods here.
+        try
+        {
+            _androidSpeaker?.Dispose();
+            _androidSpeaker = new AndroidSpeaker(hostTransform);
+            VoiceChatPluginMain.Logger.LogInfo("[VC] Android speaker initialised.");
+        }
+        catch (Exception ex)
+        {
+            VoiceChatPluginMain.Logger.LogError($"[VC] Android speaker init failed: {ex.Message}");
+            _androidSpeaker = null;
+        }
+    }
+#endif
+
+    // ======================================================================
+    // Outgoing mic data capture
+    // ======================================================================
+
+#if WINDOWS
+    private void OnMicDataAvailableWindows(object? sender, WaveInEventArgs e)
+    {
         if (Mute || _encoder == null) return;
 
         int samples = e.BytesRecorded / 2;
@@ -292,16 +370,45 @@ public class VoiceChatRoom
             float abs = s < 0 ? -s : s;
             if (abs > level) level = abs;
         }
-        _localMicLevel = level;   // volatile write – safe
+        _localMicLevel = level;
 
+        EncodeAndEnqueue(_pcmConvertBuf, samples);
+    }
+#endif
+
+#if ANDROID
+    private void OnAndroidMicFrame(float[] samples, int offset)
+    {
+        if (Mute || _encoder == null) return;
+
+        const int frameSize = 960; // 20 ms @ 48 kHz
+        if (_pcmConvertBuf == null || _pcmConvertBuf.Length < frameSize)
+            _pcmConvertBuf = new float[frameSize];
+
+        float level = 0f;
+        for (int i = 0; i < frameSize; i++)
+        {
+            float s = samples[offset + i] * _micVolume;
+            _pcmConvertBuf[i] = s;
+            float abs = s < 0 ? -s : s;
+            if (abs > level) level = abs;
+        }
+        _localMicLevel = level;
+
+        EncodeAndEnqueue(_pcmConvertBuf, frameSize);
+    }
+#endif
+
+    private void EncodeAndEnqueue(float[] pcm, int sampleCount)
+    {
+        if (_encoder == null) return;
         try
         {
-            int encoded = _encoder.Encode(_pcmConvertBuf, samples, _encodeBuffer, _encodeBuffer.Length);
+            int encoded = _encoder.Encode(pcm, sampleCount, _encodeBuffer, _encodeBuffer.Length);
             if (encoded <= 0) return;
-
             var payload = new byte[encoded];
             Array.Copy(_encodeBuffer, payload, encoded);
-            _sendQueue.Enqueue(payload);  // ConcurrentQueue – safe
+            _sendQueue.Enqueue(payload);
         }
         catch (Exception ex)
         {
@@ -309,11 +416,10 @@ public class VoiceChatRoom
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // Incoming: Hazel thread → enqueue only
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
+    // Incoming: Hazel thread -> enqueue only
+    // ======================================================================
 
-    // Called from AudioRpcPatch (Hazel network thread).
     internal static void EnqueueAudioPacket(int senderId, byte[] encoded)
     {
         Current?._receiveQueue.Enqueue(new IncomingPacket(senderId, 0, encoded, 0, ""));
@@ -324,25 +430,26 @@ public class VoiceChatRoom
         Current?._receiveQueue.Enqueue(new IncomingPacket(senderId, 1, Array.Empty<byte>(), playerId, playerName));
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
     // Per-frame Update  (Unity main thread)
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
 
     public void Update()
     {
-        // 1. Send any pending encoded audio frames via Hazel (main thread safe)
+#if ANDROID
+        // Poll Unity Microphone API (main thread, Android only)
+        PollAndroidMic();
+
+        // Lazily initialise Android speaker once HUD is live
+        if (_androidSpeaker == null && HudManager.InstanceExists && HudManager.Instance)
+            InitAndroidSpeaker(HudManager.Instance.transform);
+#endif
+
         DrainSendQueue();
-
-        // 2. Process incoming packets (main thread only – modifies _clients/_decoders)
         DrainReceiveQueue();
-
-        // 3. Prune disconnected clients
         PruneDisconnectedClients();
-
-        // 4. Broadcast local profile if changed
         TryUpdateLocalProfile();
 
-        // 5. Comms sabotage check (every 0.5 s)
         _commsSabCheckTimer -= Time.deltaTime;
         if (_commsSabCheckTimer <= 0f)
         {
@@ -350,7 +457,6 @@ public class VoiceChatRoom
             _commsSabActive     = CheckCommsSabotage();
         }
 
-        // 6. Per-client volume/pan decisions
         var localPlayer  = PlayerControl.LocalPlayer;
         Vector2? listenerPos = localPlayer ? (Vector2)localPlayer.transform.position : null;
         bool localInVent = localPlayer != null && localPlayer.inVent;
@@ -382,11 +488,19 @@ public class VoiceChatRoom
         }
     }
 
+#if ANDROID
+    private void PollAndroidMic()
+    {
+        _androidMic?.Poll(OnAndroidMicFrame);
+        if (_androidMic != null)
+            _localMicLevel = _androidMic.Level;
+    }
+#endif
+
     private void DrainSendQueue()
     {
         if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null) return;
 
-        // Limit how many we send per frame to avoid spikes
         const int maxPerFrame = 4;
         int sent = 0;
         while (sent < maxPerFrame && _sendQueue.TryDequeue(out var payload))
@@ -409,7 +523,6 @@ public class VoiceChatRoom
 
     private void DrainReceiveQueue()
     {
-        // Process all pending incoming packets; runs on main thread only
         const int maxPerFrame = 16;
         int processed = 0;
         while (processed < maxPerFrame && _receiveQueue.TryDequeue(out var pkt))
@@ -430,18 +543,14 @@ public class VoiceChatRoom
             _decoders[senderId] = decoder;
         }
 
-        // Each sender gets its own decode buffer – never shared
         if (!_decodeBufs.TryGetValue(senderId, out var buf))
         {
-            buf = new float[5760]; // max Opus frame at 48 kHz
+            buf = new float[5760];
             _decodeBufs[senderId] = buf;
         }
 
         int decoded;
-        try
-        {
-            decoded = decoder.Decode(encoded, buf, buf.Length);
-        }
+        try { decoded = decoder.Decode(encoded, buf, buf.Length); }
         catch (Exception ex)
         {
             VoiceChatPluginMain.Logger.LogError($"[VC] Decode error client {senderId}: {ex.Message}");
@@ -455,12 +564,9 @@ public class VoiceChatRoom
             player = new VCPlayer(this, instance,
                 _imager, _normalVolume, _ghostVolume, _radioVolume, _clientVolume, _levelMeter);
             _clients[senderId] = player;
-            // FIX #1: Try to resolve PlayerControl on slot creation, but also
-            // apply any buffered profile that arrived before audio started.
             player.TryResolveFromClientId(senderId);
             VoiceChatPluginMain.Logger.LogInfo($"[VC] New client {senderId}.");
 
-            // Apply any profile that was buffered before the audio slot existed.
             if (_pendingProfiles.TryGetValue(senderId, out var pending))
             {
                 player.UpdateProfile(pending.PlayerId, pending.PlayerName);
@@ -470,28 +576,28 @@ public class VoiceChatRoom
             }
         }
 
-        // AddSamples writes to BufferedSampleProvider which uses CircularFloatBuffer (thread-safe).
-        // The WasapiOut thread will read from it concurrently; CircularFloatBuffer uses a lock.
+        // Feed decoded PCM into audio routing graph.
+        // On Windows, WasapiOut pulls from the graph endpoint on its own thread.
+        // On Android, we additionally push to AndroidSpeaker which drives the
+        // Unity AudioSource streaming clip via its PCMReaderCallback.
         player.AddSamples(buf, decoded);
+
+#if ANDROID
+        _androidSpeaker?.WriteMono(buf, 0, decoded);
+#endif
     }
 
-    // FIX Buffer for profile packets that arrive before the audio slot is created.
-    // Key = Hazel clientId, Value = most recent profile update for that client.
     private readonly Dictionary<int, (byte PlayerId, string PlayerName)> _pendingProfiles = new();
 
     private void ProcessProfileUpdate(int senderId, byte playerId, string playerName)
     {
         if (_clients.TryGetValue(senderId, out var player))
         {
-            // Audio slot already exists – apply immediately.
             player.UpdateProfile(playerId, playerName);
-            VoiceChatPluginMain.Logger.LogInfo(
-                $"[VC] Client {senderId}: id={playerId} name={playerName}");
+            VoiceChatPluginMain.Logger.LogInfo($"[VC] Client {senderId}: id={playerId} name={playerName}");
         }
         else
         {
-            // FIX Audio slot doesn't exist yet (profile arrived before any audio).
-            // Buffer it; ProcessAudioFrame will apply it when the slot is created.
             _pendingProfiles[senderId] = (playerId, playerName);
             VoiceChatPluginMain.Logger.LogInfo(
                 $"[VC] Buffered profile for future client {senderId}: id={playerId} name={playerName}");
@@ -534,10 +640,8 @@ public class VoiceChatRoom
 
     public void Rejoin()
     {
-        // Drain queues so stale data from the old game doesn't bleed in
         while (_sendQueue.TryDequeue(out _)) { }
         while (_receiveQueue.TryDequeue(out _)) { }
-
         foreach (var id in _clients.Keys.ToList())
         {
             _audioManager.Remove(id);
@@ -551,18 +655,24 @@ public class VoiceChatRoom
 
     public void Close()
     {
-        // Stop mic first to prevent WaveIn thread from enqueueing after Close
+#if WINDOWS
         try { _waveIn?.StopRecording(); } catch { }
         try { _waveIn?.Dispose(); } catch { }
         _waveIn = null;
+#elif ANDROID
+        try { _androidMic?.Stop(); _androidMic?.Dispose(); } catch { }
+        _androidMic = null;
+        try { _androidSpeaker?.Dispose(); } catch { }
+        _androidSpeaker = null;
+#endif
 
-        // Drain send queue (nothing will be sent after this)
         while (_sendQueue.TryDequeue(out _)) { }
         while (_receiveQueue.TryDequeue(out _)) { }
 
-        // Stop speaker before tearing down the audio graph
+#if WINDOWS
         try { _waveOut?.Stop(); _waveOut?.Dispose(); } catch { }
         _waveOut = null;
+#endif
 
         _encoder?.Dispose();
         _encoder = null;
@@ -608,9 +718,9 @@ public class VoiceChatRoom
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
     // Utility
-    // ══════════════════════════════════════════════════════════════════════════
+    // ======================================================================
 
     internal static float GetVolume(float dist, float maxDist)
         => Math.Clamp(1f - dist / maxDist, 0f, 1f);
@@ -620,7 +730,7 @@ public class VoiceChatRoom
 
     internal record SpeakerCache(IVoiceComponent Speaker, float Volume, float Pan);
 
-    // ── Harmony patch: Hazel network thread – enqueue only ──────────────────────
+    // Harmony patch: Hazel network thread - enqueue only
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
     public static class AudioRpcPatch
     {
@@ -630,7 +740,6 @@ public class VoiceChatRoom
             if (callId != AudioRpcId) return;
             if (Current == null) return;
 
-            // Identify sender
             int senderId = -1;
             if (AmongUsClient.Instance != null)
             {
@@ -638,7 +747,6 @@ public class VoiceChatRoom
                 if (cl != null) senderId = cl.Id;
             }
             if (senderId < 0) return;
-            // Ignore our own echo
             if (AmongUsClient.Instance != null &&
                 senderId == AmongUsClient.Instance.ClientId) return;
 
@@ -647,7 +755,6 @@ public class VoiceChatRoom
                 byte packetType = reader.ReadByte();
                 if (packetType == 0)
                 {
-                    // Read the encoded bytes immediately on this thread (MessageReader is not thread-safe to defer)
                     byte[] encoded = reader.ReadBytesAndSize();
                     if (encoded != null && encoded.Length > 0)
                         EnqueueAudioPacket(senderId, encoded);

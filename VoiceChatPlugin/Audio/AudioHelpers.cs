@@ -1,6 +1,6 @@
-using VoiceChatPlugin.Concentus;
-using VoiceChatPlugin.Concentus.Enums;
-using VoiceChatPlugin.Concentus.Structs;
+using Concentus;
+using Concentus.Enums;
+using Concentus.Structs;
 
 namespace VoiceChatPlugin.Audio;
 

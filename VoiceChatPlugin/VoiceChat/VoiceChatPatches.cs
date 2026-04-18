@@ -140,6 +140,13 @@ public static class VoiceChatPatches
 
         VoiceChatRoom.Start();
         ApplyMicState();
+#if ANDROID
+        // On Android the speaker needs the HUD transform, which is live by this point.
+        if (HudManager.InstanceExists && HudManager.Instance)
+            VoiceChatRoom.Current?.InitAndroidSpeaker(HudManager.Instance.transform);
+#endif
+        // Broadcast our mod GUID to other players so they can confirm compatibility.
+        ModdedRoomManager.SendHandshake();
 
         if (__instance.AmHost)
         {
@@ -176,13 +183,15 @@ public static class VoiceChatPatches
         VoiceChatPluginMain.Logger.LogInfo("[VC] Game ended: VC room rejoined.");
     }
 
-    // ── Keyboard shortcuts ────────────────────────────────────────────────────
+    // ── Keyboard shortcuts (Windows only; Android has no physical keyboard) ────
+#if WINDOWS
     [HarmonyPostfix, HarmonyPatch(typeof(KeyboardJoystick), nameof(KeyboardJoystick.Update))]
     static void KeyboardUpdate_Post()
     {
         if (Input.GetKeyDown(KeyCode.M)) CycleMic();
         if (Input.GetKeyDown(KeyCode.N)) ToggleSpeaker();
     }
+#endif
 
     // ── Button creation ───────────────────────────────────────────────────────
     private static void DestroyButtons()
