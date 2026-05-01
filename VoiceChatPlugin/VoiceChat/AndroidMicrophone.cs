@@ -1,151 +1,123 @@
 #if ANDROID
 using System;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 
 namespace VoiceChatPlugin.VoiceChat;
 
 /// <summary>
-/// Android microphone bridge.
+/// Android microphone capture backend.
 ///
-/// On Android, NAudio's WaveInEvent is unavailable. Instead we use Unity's
-/// built-in <see cref="Microphone"/> API to capture audio, then feed the raw
-/// PCM float samples into the same Opus-encode pipeline used on Windows.
+/// Mirrors Nebula's ManualMicrophone + PushAudioData pattern from NoSVCRoom.cs.
 ///
-/// This mirrors the approach used in Nebula (NoSVCRoom.cs) where a
-/// ManualMicrophone + PushAudioData loop drives the voice-chat microphone on
-/// the Android platform.
+/// Nebula's approach (from the commented-out section preserved in NoSVCRoom.cs):
+/// <code>
+///   Il2CppStructArray&lt;float&gt; audioData = new((long)sampleCount);
+///   micAudioClip.GetData(audioData, lastPosition.Value);
+///   unityMic?.PushAudioData(audioData);
+/// </code>
 ///
-/// Threading:
-///   <see cref="Poll"/> is called every frame from the Unity main thread.
-///   The encoded packet is enqueued into the same ConcurrentQueue that the
-///   Windows WaveInEvent callback uses, so the rest of <see cref="VoiceChatRoom"/>
-///   requires no changes.
+/// SetMicrophone on Android calls:
+/// <code>
+///   interstellarRoom.Microphone = new ManualMicrophone();
+/// </code>
+/// which means the microphone object itself is created fresh (no device name needed).
+/// Audio is pushed into it via PushAudioData each frame.
+///
+/// In VoiceChat (which uses Hazel transport instead of Interstellar) we replicate
+/// this by reading Unity Microphone each frame and directly encoding + enqueuing.
 /// </summary>
 internal sealed class AndroidMicrophone : IDisposable
 {
-    // ── Config ──────────────────────────────────────────────────────────────
-    private const int SampleRate   = 48000;  // Hz — must match AudioHelpers.ClockRate
-    private const int LoopSeconds  = 1;      // Unity looping clip length
-    private const int FrameSamples = 960;    // 20 ms @ 48 kHz (one Opus frame)
+    private const int SampleRate  = 48000;
+    private const int ClipSeconds = 1;     // Nebula uses 1 s looping clip
 
-    // ── State ────────────────────────────────────────────────────────────────
-    private string?    _deviceName;
+    private string    _device = "";
     private AudioClip? _clip;
-    private int        _lastPosition;
-    private bool       _started;
-    private float[]    _readBuf = new float[FrameSamples];
+    private int        _lastPos;
+    private bool       _recording;
+    private float      _volume = 1f;
 
-    /// <summary>Whether the microphone is currently capturing.</summary>
-    public bool IsCapturing => _started && _clip != null;
+    // Fires on main thread (via Tick) with (float[] buf, int length)
+    public event Action<float[], int>? DataAvailable;
 
-    /// <summary>Most recently measured peak level (0–1) for the VU meter.</summary>
-    public float Level { get; private set; }
-
-    // ── Public API ───────────────────────────────────────────────────────────
+    public void SetVolume(float v) => _volume = Math.Clamp(v, 0f, 4f);
 
     /// <summary>
-    /// Start capturing from the given device name.
-    /// Pass <c>null</c> or empty string for the default device.
-    /// Returns <c>true</c> on success.
+    /// Start capture. Mirrors Nebula's SetUnityMicrophone():
+    /// falls back to first available device if the given name is empty/invalid.
+    /// Never passes null to Microphone.Start (IL2CPP does not accept null here).
     /// </summary>
-    public bool Start(string? deviceName)
+    public void Start(string deviceName)
     {
         Stop();
 
-        // Validate device exists; fall back to first available.
-        if (string.IsNullOrEmpty(deviceName) || !IsDeviceAvailable(deviceName))
-            deviceName = Microphone.devices.Length > 0 ? Microphone.devices[0] : null;
+        // Nebula: falls back to first enumerated device
+        if (string.IsNullOrEmpty(deviceName) || !DeviceExists(deviceName))
+            deviceName = Microphone.devices.Length > 0 ? Microphone.devices[0] : "";
 
-        if (deviceName == null)
-        {
-            VoiceChatPluginMain.Logger.LogWarning("[VC] Android: no microphone device found.");
-            return false;
-        }
+        _device    = deviceName;
+        _clip      = Microphone.Start(_device, true, ClipSeconds, SampleRate);
+        _lastPos   = 0;
+        _recording = true;
 
-        _deviceName   = deviceName;
-        _clip         = Microphone.Start(deviceName, true, LoopSeconds, SampleRate);
-        _lastPosition = 0;
-        _started      = true;
-
-        VoiceChatPluginMain.Logger.LogInfo($"[VC] Android mic started: '{deviceName}'");
-        return true;
+        VoiceChatPluginMain.Logger.LogInfo(
+            $"[VC] Android mic started: '{(string.IsNullOrEmpty(_device) ? "default" : _device)}'");
     }
 
-    /// <summary>Stop the microphone.</summary>
     public void Stop()
     {
-        if (_started && _deviceName != null)
-        {
-            Microphone.End(_deviceName);
-            VoiceChatPluginMain.Logger.LogInfo($"[VC] Android mic stopped: '{_deviceName}'");
-        }
-        _clip       = null;
-        _deviceName = null;
-        _started    = false;
-        Level       = 0f;
+        _recording = false;
+        if (!string.IsNullOrEmpty(_device))
+            Microphone.End(_device);
+        _clip = null;
+    }
+
+    /// <summary>
+    /// Poll for new samples — call once per frame from the main thread.
+    ///
+    /// Mirrors Nebula's PushAudioData():
+    /// <code>
+    ///   int currentPosition = Microphone.GetPosition(currentMic);
+    ///   Il2CppStructArray&lt;float&gt; audioData = new((long)sampleCount);
+    ///   micAudioClip.GetData(audioData, lastPosition.Value);
+    ///   unityMic?.PushAudioData(audioData);
+    /// </code>
+    /// We skip the Il2CppStructArray here because AudioClip.GetData accepts float[]
+    /// in the IL2CPP interop layer — the array is marshalled automatically.
+    /// </summary>
+    public void Tick()
+    {
+        if (!_recording || _clip == null) return;
+
+        int pos = Microphone.GetPosition(_device);
+        if (pos < 0) return;
+
+        int newSamples = pos >= _lastPos
+            ? pos - _lastPos
+            : (_clip.samples - _lastPos) + pos;
+
+        if (newSamples <= 0) return;
+
+        var buf = new float[newSamples];
+        _clip.GetData(buf, _lastPos % _clip.samples);
+        _lastPos = pos;
+
+        if (_volume != 1f)
+            for (int i = 0; i < buf.Length; i++) buf[i] *= _volume;
+
+        DataAvailable?.Invoke(buf, buf.Length);
     }
 
     public void Dispose() => Stop();
 
-    /// <summary>
-    /// Call once per Unity frame (main thread).
-    /// Reads any newly captured samples from the ring clip and invokes
-    /// <paramref name="onSamples"/> for each full Opus frame (960 samples).
-    ///
-    /// <paramref name="onSamples"/> receives a <c>float[]</c> slice of exactly
-    /// <see cref="FrameSamples"/> samples at <see cref="SampleRate"/> Hz mono.
-    /// </summary>
-    public void Poll(Action<float[], int> onSamples)
-    {
-        if (!IsCapturing || _clip == null) return;
+    public static string[] GetDeviceNames() => Microphone.devices;
 
-        int currentPosition = Microphone.GetPosition(_deviceName);
-        if (currentPosition < 0) return; // device error
-
-        int available;
-        if (currentPosition >= _lastPosition)
-            available = currentPosition - _lastPosition;
-        else
-            available = _clip.samples - _lastPosition + currentPosition; // wrapped
-
-        if (available <= 0) return;
-
-        // Ensure read buffer is large enough
-        if (_readBuf.Length < available)
-            _readBuf = new float[available];
-
-        // Unity's GetData takes the offset in samples (mono).
-        _clip.GetData(_readBuf, _lastPosition);
-        _lastPosition = currentPosition;
-
-        // Measure peak level
-        float peak = 0f;
-        for (int i = 0; i < available; i++)
-        {
-            float abs = Math.Abs(_readBuf[i]);
-            if (abs > peak) peak = abs;
-        }
-        Level = peak;
-
-        // Dispatch full Opus frames
-        int offset = 0;
-        while (offset + FrameSamples <= available)
-        {
-            onSamples(_readBuf, offset);
-            offset += FrameSamples;
-        }
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
-    private static bool IsDeviceAvailable(string name)
+    private static bool DeviceExists(string name)
     {
         foreach (var d in Microphone.devices)
             if (d == name) return true;
         return false;
     }
-
-    /// <summary>Return all available Android microphone device names.</summary>
-    public static string[] GetDevices() => Microphone.devices;
 }
 #endif

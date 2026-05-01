@@ -159,7 +159,7 @@ namespace VoiceChatPlugin
 
 			VoiceChatConfig.ApplyLocalHostSettingsToSynced();
 			VoiceChatRoomSettings.SendToAll(VoiceChatConfig.SyncedRoomSettings);
-			VoiceChatPatches.MarkRoomSettingsDirty();
+			VoiceChatHudState.MarkRoomSettingsDirty();
 			return false;
 		}
 
@@ -175,7 +175,7 @@ namespace VoiceChatPlugin
 				VoiceChatConfig.SetHostMaxChatDistance(value);
 				VoiceChatConfig.ApplyLocalHostSettingsToSynced();
 				VoiceChatRoomSettings.SendToAll(VoiceChatConfig.SyncedRoomSettings);
-				VoiceChatPatches.MarkRoomSettingsDirty();
+				VoiceChatHudState.MarkRoomSettingsDirty();
 				return false;
 			}
 			return true;

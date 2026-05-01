@@ -1,180 +1,124 @@
 #if ANDROID
 using System;
-using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using NAudio.Wave;
 using UnityEngine;
+using VoiceChatPlugin.Audio;
 
 namespace VoiceChatPlugin.VoiceChat;
 
 /// <summary>
-/// Android audio output bridge.
+/// Android audio output backend.
 ///
-/// On Android, NAudio's <c>WasapiOut</c> is unavailable. Instead we create a
-/// looping <see cref="AudioClip"/> in streaming mode and attach it to a Unity
-/// <see cref="AudioSource"/>.  Unity pulls PCM data via the
-/// <c>PCMReaderCallback</c>, which we fill from the same decoded float samples
-/// that the Windows <c>WasapiOut</c> pulls from the audio graph.
+/// Mirrors Nebula's NoSVCRoom.cs exactly:
 ///
-/// This mirrors the approach used in Nebula (NoSVCRoom.cs):
-/// <code>
-///   var audioSource = ... AddComponent&lt;AudioSource&gt;();
-///   AudioClip myClip = AudioClip.Create("VCAudio", halfSecSamples, 2, sampleRate, true,
-///       (PCMReaderCallback)(ary =&gt; speaker.Read(ary)));
+///   var audioSource = ModSingleton&lt;ResidentBehaviour&gt;.Instance.gameObject.AddComponent&lt;AudioSource&gt;();
+///   audioSource.MarkDontUnload();
+///   var speaker = new ManualSpeaker(() => { if (audioSource) GameObject.Destroy(audioSource); });
+///   AudioClip myClip = AudioClip.Create("VCAudio", (int)(sampleRate * 0.5f), 2, sampleRate, true,
+///       (AudioClip.PCMReaderCallback)(ary => speaker.Read(ary)));
 ///   audioSource.clip = myClip;
 ///   audioSource.loop = true;
 ///   audioSource.Play();
-/// </code>
 ///
-/// The <see cref="DecodedBuffer"/> queue is written by the main-thread decode
-/// loop in <see cref="VoiceChatRoom"/> and read by Unity's audio thread via the
-/// PCMReaderCallback.
+/// Nebula's ManualSpeaker.Read(ary) is driven by Unity's audio thread via PCMReaderCallback.
+/// In Nebula, ManualSpeaker internally calls _endpoint.Read() (the Interstellar audio graph
+/// endpoint) to pull rendered PCM through the full volume/pan/effects routing graph.
+///
+/// We replicate this exactly: PCMReaderCallback calls _endpoint.Read() directly,
+/// pulling audio through the full AudioManager routing graph (volume, stereo pan,
+/// ghost reverb, radio filter, etc.) — not from a separate ring buffer.
+///
+/// This is the key fix: previously WriteMono() bypassed the graph entirely.
+/// Now the PCMReaderCallback IS the graph's consumer, just like Nebula's ManualSpeaker.
 /// </summary>
 internal sealed class AndroidSpeaker : IDisposable
 {
-    private const int SampleRate    = 48000;
-    private const int Channels      = 2;      // stereo output
-    private const float HalfSecBuf  = 0.5f;   // streaming clip half-second length
+    // Match Nebula: (int)(interstellarRoom.SampleRate * 0.5f) samples, 2 channels
+    private const int   SampleRate = 48000;
+    private const int   Channels   = 2;
+    private const float ClipSecs   = 0.5f;
 
-    private readonly GameObject    _hostObject;
-    private readonly AudioSource   _audioSource;
-    private readonly AudioClip     _streamingClip;
-
-    // Ring buffer for decoded stereo PCM; written on main thread, read on audio thread.
-    // Use a simple lock-free approach: write index wraps around a float[].
-    private readonly float[] _ring;
-    private volatile int     _writePos;
-    private volatile int     _readPos;
-    private readonly int     _ringSize;
-
-    public bool IsPlaying => _audioSource != null && _audioSource.isPlaying;
-
-    // Master volume [0, 2]. Called by VoiceChatRoom.SetMasterVolume().
+    private readonly AudioSource      _source;
+    private readonly AudioClip        _clip;
+    private readonly ISampleProvider  _endpoint; // the AudioManager graph endpoint
+    private readonly float[]          _readBuf;  // scratch buffer for mono→stereo conversion
     private float _masterVolume = 1f;
+
+    public bool IsPlaying => _source != null && _source.isPlaying;
+
+    /// <summary>
+    /// Create the speaker. The <paramref name="endpoint"/> is the AudioManager.Endpoint
+    /// (ISampleProvider) — the final output of the audio routing graph.
+    /// We call endpoint.Read() inside the PCMReaderCallback to pull audio through
+    /// the full graph, exactly as Nebula's ManualSpeaker does via Interstellar.
+    /// </summary>
+    public AndroidSpeaker(ISampleProvider endpoint)
+    {
+        _endpoint = endpoint ?? throw new ArgumentNullException(nameof(endpoint));
+
+        var host = VoiceChatPluginMain.ResidentObject
+            ?? throw new InvalidOperationException("[VC] ResidentObject is null");
+
+        int clipSamples = (int)(SampleRate * ClipSecs); // Nebula: sampleRate * 0.5f
+        _readBuf = new float[clipSamples * Channels];
+
+        // Add AudioSource to ResidentObject — Nebula: ResidentBehaviour.gameObject.AddComponent<AudioSource>()
+        _source = host.AddComponent<AudioSource>();
+        // Nebula: audioSource.MarkDontUnload()
+        _source.hideFlags  |= HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
+        _source.spatialBlend = 0f; // 2D
+        _source.volume       = 1f;
+
+        // Nebula: AudioClip.Create("VCAudio", (int)(sampleRate * 0.5f), 2, sampleRate, true,
+        //             (PCMReaderCallback)(ary => speaker.Read(ary)))
+        _clip = AudioClip.Create(
+            "VCAudio",
+            clipSamples,
+            Channels,
+            SampleRate,
+            true,
+            (AudioClip.PCMReaderCallback)(ary => Read(ary)));
+
+        _source.clip = _clip;
+        _source.loop = true;
+        _source.Play();
+
+        VoiceChatPluginMain.Logger.LogInfo("[VC] Android speaker initialised (Nebula pattern, graph-driven).");
+    }
+
+    // ── PCMReaderCallback — called by Unity audio thread ────────────────────
+    // Mirrors Nebula's ManualSpeaker.Read(ary):
+    // pulls audio through the full AudioManager routing graph via _endpoint.Read().
+
+    private void Read(float[] data)
+    {
+        // _endpoint outputs stereo at 48 kHz — same format as the AudioClip.
+        int got = _endpoint.Read(data, 0, data.Length);
+
+        // Zero any unfilled samples (under-run)
+        for (int i = got; i < data.Length; i++) data[i] = 0f;
+
+        // Apply master volume
+        if (_masterVolume != 1f)
+            for (int i = 0; i < data.Length; i++) data[i] *= _masterVolume;
+    }
+
+    // ── Volume ────────────────────────────────────────────────────────────────
 
     public void SetMasterVolume(float v)
     {
-        _masterVolume = Math.Clamp(v, 0f, 2f);
-        if (_audioSource != null)
-            _audioSource.volume = Math.Clamp(v, 0f, 1f);
-        // Drain the ring on mute to prevent residual audio on unmute
-        if (_masterVolume <= 0f) _readPos = _writePos;
-    }
-
-    /// <summary>
-    /// Create and immediately start the Android speaker output.
-    /// <paramref name="hostTransform"/> should be a persistent scene object
-    /// (e.g., the HudManager transform or a DontDestroyOnLoad object).
-    /// </summary>
-    public AndroidSpeaker(Transform hostTransform)
-    {
-        int clipSamples = (int)(SampleRate * HalfSecBuf);
-        _ringSize       = clipSamples * Channels * 4; // keep 4× buffer depth
-        _ring           = new float[_ringSize];
-        _writePos       = 0;
-        _readPos        = 0;
-
-        _hostObject  = new GameObject("VC_AndroidSpeaker");
-        _hostObject.transform.SetParent(hostTransform, false);
-        UnityEngine.Object.DontDestroyOnLoad(_hostObject);
-
-        _audioSource = _hostObject.AddComponent<AudioSource>();
-        _audioSource.spatialBlend = 0f; // 2D output
-
-        // Streaming clip: Unity calls the PCM reader on its audio thread.
-        // IL2CPP Among Us uses Action<Il2CppStructArray<float>>, not the managed
-        // PCMReaderCallback delegate, so we cast accordingly.
-        _streamingClip = AudioClip.Create(
-            "VCAndroidOutput",
-            clipSamples * Channels,
-            Channels,
-            SampleRate,
-            stream: true,
-            new Action<Il2CppStructArray<float>>(ReadCallbackIl2Cpp));
-
-        _audioSource.clip = _streamingClip;
-        _audioSource.loop = true;
-        _audioSource.Play();
-    }
-
-    // ── Called by audio thread (Unity internals) ─────────────────────────────
-    // IL2CPP passes an Il2CppStructArray<float>; we treat it as a regular array.
-
-    private void ReadCallbackIl2Cpp(Il2CppStructArray<float> data)
-    {
-        int needed = data.Length;
-        int avail  = AvailableForRead();
-
-        if (avail >= needed)
-        {
-            for (int i = 0; i < needed; i++)
-            {
-                data[i]  = _ring[_readPos % _ringSize];
-                _readPos = (_readPos + 1) % _ringSize;
-            }
-        }
-        else
-        {
-            // Under-run: output silence for missing samples
-            int copyCount = avail;
-            for (int i = 0; i < copyCount; i++)
-            {
-                data[i]  = _ring[_readPos % _ringSize];
-                _readPos = (_readPos + 1) % _ringSize;
-            }
-            for (int i = copyCount; i < needed; i++) data[i] = 0f;
-        }
-    }
-
-    // ── Called by main thread decode loop ────────────────────────────────────
-
-    /// <summary>
-    /// Push decoded stereo (or mono-upscaled) float PCM into the output ring.
-    /// <paramref name="samples"/> must be interleaved stereo at 48 kHz.
-    /// </summary>
-    public void Write(float[] samples, int offset, int count)
-    {
-        // If the ring is full, drop oldest data (overwrite read pointer)
-        for (int i = 0; i < count; i++)
-        {
-            _ring[_writePos] = samples[offset + i];
-            _writePos        = (_writePos + 1) % _ringSize;
-
-            // If write overtook read, advance read to discard oldest sample
-            if (_writePos == _readPos)
-                _readPos = (_readPos + 1) % _ringSize;
-        }
-    }
-
-    /// <summary>Convenience overload for mono samples (duplicates to stereo).</summary>
-    public void WriteMono(float[] samples, int offset, int count)
-    {
-        for (int i = 0; i < count; i++)
-        {
-            float s = samples[offset + i];
-            _ring[_writePos] = s;
-            _writePos        = (_writePos + 1) % _ringSize;
-            if (_writePos == _readPos) _readPos = (_readPos + 1) % _ringSize;
-
-            _ring[_writePos] = s; // duplicate for right channel
-            _writePos        = (_writePos + 1) % _ringSize;
-            if (_writePos == _readPos) _readPos = (_readPos + 1) % _ringSize;
-        }
+        _masterVolume  = Math.Clamp(v, 0f, 2f);
+        _source.volume = Math.Clamp(v, 0f, 1f);
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     public void Dispose()
     {
-        if (_audioSource != null) _audioSource.Stop();
-        if (_hostObject  != null) UnityEngine.Object.Destroy(_hostObject);
+        _source.Stop();
+        // Nebula: if (audioSource) GameObject.Destroy(audioSource)
+        if (_source != null) UnityEngine.Object.Destroy(_source);
         VoiceChatPluginMain.Logger.LogInfo("[VC] Android speaker disposed.");
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
-    private int AvailableForRead()
-    {
-        int w = _writePos, r = _readPos;
-        return w >= r ? w - r : _ringSize - r + w;
     }
 }
 #endif

@@ -85,7 +85,7 @@ public class VoiceChatRoom
     private WaveInEvent? _waveIn;
     public bool UsingMicrophone => _waveIn != null;
 #elif ANDROID
-    private AndroidMicrophoneInput? _androidMic;
+    private AndroidMicrophone? _androidMic;
     public bool UsingMicrophone => _androidMic != null;
 #else
     public bool UsingMicrophone => false;
@@ -185,8 +185,10 @@ public class VoiceChatRoom
         // Nebula pattern: use the persistent ResidentObject (DontDestroyOnLoad) as the
         // AudioSource host so the speaker is never accidentally destroyed when
         // HudManager rebuilds on scene transitions.
+        // Nebula: AudioSource added to ResidentBehaviour.gameObject + MarkDontUnload.
+        // AndroidSpeaker() replicates this via VoiceChatPluginMain.ResidentObject.
         if (VoiceChatPluginMain.ResidentObject != null)
-            InitAndroidSpeaker(VoiceChatPluginMain.ResidentObject.transform);
+            InitAndroidSpeaker();
         else
             VoiceChatPluginMain.Logger.LogWarning("[VC] Android: ResidentObject not available.");
 #endif
@@ -273,6 +275,25 @@ public class VoiceChatRoom
 #if ANDROID
     private void SetMicrophoneAndroid(string deviceName)
     {
+        // Nebula: CheckAndShowConfirmPopup wraps microphone start on Android.
+        // Nebula's latest code shows a "noMic" confirmation dialog before allowing mic.
+        // We use a coroutine to request Android microphone permission first,
+        // then start capturing once authorized — mirroring Nebula's intent.
+        if (VoiceChatPluginMain.ResidentObject != null)
+        {
+            var behaviour = VoiceChatPluginMain.ResidentObject.GetComponent<PermissionHelper>()
+                ?? VoiceChatPluginMain.ResidentObject.AddComponent<PermissionHelper>();
+            behaviour.RequestMicAndStart(this, deviceName ?? "");
+        }
+        else
+        {
+            StartMicNow(deviceName ?? "");
+        }
+    }
+
+    // Called by PermissionHelper after permission is granted (or immediately if already granted).
+    internal void StartMicNow(string deviceName)
+    {
         try
         {
             _androidMic?.Stop();
@@ -280,13 +301,10 @@ public class VoiceChatRoom
             _encoder?.Dispose();
 
             _encoder    = AudioHelpers.GetOpusEncoder();
-            _androidMic = new AndroidMicrophoneInput();
-            _androidMic.SetDevice(deviceName ?? "");
+            // Nebula: interstellarRoom.Microphone = new ManualMicrophone();
+            _androidMic = new AndroidMicrophone();
             _androidMic.DataAvailable += OnAndroidMicData;
-            _androidMic.Start();
-
-            VoiceChatPluginMain.Logger.LogInfo(
-                $"[VC] Android mic started: '{(string.IsNullOrEmpty(deviceName) ? "default" : deviceName)}'");
+            _androidMic.Start(deviceName);
         }
         catch (Exception ex)
         {
@@ -342,13 +360,17 @@ public class VoiceChatRoom
 #endif
 
 #if ANDROID
-    internal void InitAndroidSpeaker(Transform hostTransform)
+    private void InitAndroidSpeaker()
     {
         try
         {
             _androidSpeaker?.Dispose();
-            _androidSpeaker = new AndroidSpeaker(hostTransform);
-            VoiceChatPluginMain.Logger.LogInfo("[VC] Android speaker initialised.");
+            // Nebula: ManualSpeaker.Read() pulls from the Interstellar graph endpoint.
+            // We pass _audioManager.Endpoint so the PCMReaderCallback drives the
+            // full audio routing graph (volume, pan, reverb, radio) — same as Nebula.
+            if (_audioManager.Endpoint == null)
+                throw new InvalidOperationException("AudioManager endpoint is null");
+            _androidSpeaker = new AndroidSpeaker(_audioManager.Endpoint);
         }
         catch (Exception ex)
         {
@@ -459,8 +481,8 @@ public class VoiceChatRoom
     public void Update()
     {
 #if ANDROID
-        // Poll Unity Microphone API (main thread, Android only).
-        // Speaker is created once in constructor via ResidentObject (Nebula pattern).
+        // Nebula pattern: PushAudioData() is called each frame from UpdateInternal().
+        // We replicate this with Tick() which drains new mic samples and fires DataAvailable.
         PollAndroidMic();
 #endif
 
@@ -599,9 +621,8 @@ public class VoiceChatRoom
         // Unity AudioSource streaming clip via its PCMReaderCallback.
         player.AddSamples(buf, decoded);
 
-#if ANDROID
-        _androidSpeaker?.WriteMono(buf, 0, decoded);
-#endif
+// Android: no WriteMono needed — AndroidSpeaker.Read() pulls from _audioManager.Endpoint
+        // directly via PCMReaderCallback, exactly as Nebula's ManualSpeaker does.
     }
 
     private readonly Dictionary<int, (byte PlayerId, string PlayerName)> _pendingProfiles = new();
@@ -666,7 +687,13 @@ public class VoiceChatRoom
             _decodeBufs.Remove(id);
         }
         _clients.Clear();
+        _decoders.Clear();
+        _decodeBufs.Clear();
         _pendingProfiles.Clear();
+        // Nebula: clients.Values.Do(c => c.ResetMapping())
+        // Already cleared above; broadcast profile so others can re-map us
+        _lastId   = byte.MaxValue;
+        _lastName = null!;
         VoiceChatPluginMain.Logger.LogInfo("[VC] Rejoin: state cleared.");
     }
 
@@ -711,6 +738,8 @@ public class VoiceChatRoom
 
     private void TryUpdateLocalProfile() => UpdateLocalProfile(false);
 
+    internal void ForceUpdateLocalProfile() => UpdateLocalProfile(true);
+
     private void UpdateLocalProfile(bool always)
     {
         var lp = PlayerControl.LocalPlayer;
@@ -748,7 +777,9 @@ public class VoiceChatRoom
 
     internal record SpeakerCache(IVoiceComponent Speaker, float Volume, float Pan);
 
-    // Harmony patch: Hazel network thread - enqueue only
+    // Harmony patch: Hazel network thread - enqueue only.
+    // Self-filter uses LocalPlayer.NetId comparison (reliable on Android IL2CPP).
+    // GetClientFromCharacter can fail on Android so we avoid it for the self-check.
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
     public static class AudioRpcPatch
     {
@@ -758,15 +789,21 @@ public class VoiceChatRoom
             if (callId != AudioRpcId) return;
             if (Current == null) return;
 
+            // Filter out our own PlayerControl (self-loopback prevention).
+            // Comparing NetId is reliable on both PC and Android IL2CPP.
+            var localPlayer = PlayerControl.LocalPlayer;
+            if (localPlayer != null && __instance.NetId == localPlayer.NetId) return;
+
+            // Derive senderId from the PlayerControl's owning client.
             int senderId = -1;
             if (AmongUsClient.Instance != null)
             {
                 var cl = AmongUsClient.Instance.GetClientFromCharacter(__instance);
                 if (cl != null) senderId = cl.Id;
             }
-            if (senderId < 0) return;
-            if (AmongUsClient.Instance != null &&
-                senderId == AmongUsClient.Instance.ClientId) return;
+            // Fallback: use PlayerId as a unique key if GetClientFromCharacter fails
+            if (senderId < 0)
+                senderId = __instance.PlayerId + 1000; // offset to avoid collision with real clientIds
 
             try
             {

@@ -208,7 +208,7 @@ public static class VoiceChatOptionsPatches
 			}
 #elif ANDROID
 			// Android: enumerate via Unity Microphone API
-			foreach (var dev in AndroidMicrophone.GetDevices())
+			foreach (var dev in AndroidMicrophone.GetDeviceNames())
 				if (!string.IsNullOrWhiteSpace(dev))
 					_micDevices.Add(dev);
 #endif

@@ -7,7 +7,9 @@ using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using VoiceChatPlugin.Reactor;
+using VoiceChatPlugin.VoiceChat;
 
 namespace VoiceChatPlugin;
 
@@ -19,14 +21,20 @@ public class VoiceChatPluginMain : BasePlugin
     public static ManualLogSource Logger { get; private set; } = null!;
     public Harmony Harmony { get; } = new(Id);
 
-    // Embedded dependency DLLs are stored as resources with this prefix.
     private const string ResPrefix = "Lib.";
     private static readonly Dictionary<string, Assembly> _asmCache
         = new(StringComparer.OrdinalIgnoreCase);
 
-    // Nebula パターン: シーン切り替えでも破棄されない永続オブジェクト
-    // Nebula pattern: persistent GameObject that survives scene transitions,
-    // used as the host for the Android AudioSource speaker.
+    /// <summary>
+    /// Mirrors Nebula's ResidentBehaviour.gameObject:
+    /// a DontDestroyOnLoad + MarkDontUnload persistent GameObject.
+    /// The Android AudioSource speaker is AddComponent'd directly onto this.
+    ///
+    /// Nebula:
+    ///   var residentObj = new GameObject("ResidentObject");
+    ///   residentObj.AddComponent&lt;ResidentBehaviour&gt;().MarkDontUnload();
+    ///   residentObj.MarkDontUnload();
+    /// </summary>
     public static GameObject? ResidentObject { get; private set; }
 
     static VoiceChatPluginMain()
@@ -38,14 +46,10 @@ public class VoiceChatPluginMain : BasePlugin
     {
         var shortName = new AssemblyName(args.Name).Name;
         if (shortName == null) return null;
-
         if (_asmCache.TryGetValue(shortName, out var cached)) return cached;
-
         var resourceName = ResPrefix + shortName + ".dll";
-        var asm = Assembly.GetExecutingAssembly();
-        using var stream = asm.GetManifestResourceStream(resourceName);
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
         if (stream == null) return null;
-
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
         var loaded = Assembly.Load(ms.ToArray());
@@ -56,17 +60,28 @@ public class VoiceChatPluginMain : BasePlugin
     public override void Load()
     {
         Logger = Log;
-        Logger.LogInfo("[VC] Loading VoiceChatPlugin (source-inlined, Hazel transport).");
+        Logger.LogInfo("[VC] Loading VoiceChatPlugin.");
 
-        // Create the persistent resident object once (Nebula: ResidentBehaviour pattern).
-        // DontDestroyOnLoad ensures it survives lobby <-> game scene transitions.
-        // The Android AudioSource speaker is attached to this object so it is
-        // never accidentally destroyed when HudManager is rebuilt.
+        // Nebula:
+        //   var residentObj = new GameObject("ResidentObject");
+        //   residentObj.AddComponent<ResidentBehaviour>().MarkDontUnload();
+        //   residentObj.MarkDontUnload();
         ResidentObject = new GameObject("VC_ResidentObject");
         GameObject.DontDestroyOnLoad(ResidentObject);
+        ResidentObject.hideFlags |= HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
 
+        // Nebula: SceneManager.sceneLoaded += (scene, mode) => { new GameObject("NebulaManager").AddComponent<NebulaManager>(); }
+        VCManager.RegisterSceneHook();
+
+        // Init HUD state (registers scene-change cleanup for buttons/tooltips)
+        VoiceChatHudState.Init();
+
+        // Nebula: Harmony.PatchAll() — but we ONLY patch what Nebula also patches:
+        // VoiceChatRoomSettings RPC (PlayerControl.HandleRpc) and
+        // MeetingSpeakingIndicator and Options/VoiceVolumeMenu patches.
+        // The core room lifecycle is driven by VCManager (MonoBehaviour), NOT patches.
         LocalizationManager.Register(new HardCodedLocalizationProvider());
-        VoiceChat.VoiceChatConfig.Init(Config);
+        VoiceChatConfig.Init(Config);
         Options.SetupCustomSettings();
         Harmony.PatchAll(Assembly.GetExecutingAssembly());
 
