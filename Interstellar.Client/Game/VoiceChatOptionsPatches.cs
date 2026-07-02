@@ -54,8 +54,14 @@ public static class VoiceChatSettingsMenu
         var btn = Object.Instantiate(src.gameObject, parent).GetComponent<PassiveButton>();
         btn.name = "VC_SettingsBtn";
 
-        // Use the same consistent position for both lobby and gameplay.
-        btn.transform.localPosition = new Vector3(-1.34f, 2.99f, 0f);
+        // AmongUsClient.GameState has 4 values: NotJoined, Joined, Started, Ended.
+        // "Joined" = waiting lobby, "Started" = game actually started. Both of those
+        // should use the same button position; only the main menu (NotJoined) differs.
+        var state = AmongUsClient.Instance?.GameState ?? InnerNet.InnerNetClient.GameStates.NotJoined;
+        bool inMainMenu = state == InnerNet.InnerNetClient.GameStates.NotJoined;
+        btn.transform.localPosition = inMainMenu
+            ? new Vector3(-1.34f, 2.99f, 0f)
+            : new Vector3(-1.94f, -1.58f, 0f);
         btn.transform.localScale = new Vector3(0.49f, 0.82f, 1f);
 
         var label = btn.GetComponentInChildren<TextMeshPro>();

@@ -22,7 +22,7 @@ static public class WebSocketHelpers
         webSocket.Send(bytes.ToArray());
     }
 
-    static public void SendMessages(this WebSocket webSocket, params IEnumerable<IMessage> message)
+    static public void SendMessages(this WebSocket webSocket, IEnumerable<IMessage> message)
     {
         var bytes = MessagePacker.PackMessages(message);
         webSocket.Send(bytes.ToArray());

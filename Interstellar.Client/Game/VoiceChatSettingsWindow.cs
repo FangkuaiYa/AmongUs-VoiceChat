@@ -51,6 +51,12 @@ public class VoiceChatSettingsWindow : MonoBehaviour
     {
         if (Input.GetKeyDown(ToggleKey))
             Toggle();
+
+        // Android hardware/gesture back button is reported by Unity as Escape.
+        // Without this, mobile players who get stuck (e.g. window drawn partly
+        // off-screen) have no way to dismiss the window at all.
+        if (ShowWindow && Input.GetKeyDown(KeyCode.Escape))
+            Close();
     }
 
     void OnGUI()
@@ -66,10 +72,27 @@ public class VoiceChatSettingsWindow : MonoBehaviour
         BuildStyles();
 
         bool isAndroid = Application.platform == RuntimePlatform.Android;
-        float winW = isAndroid ? 640f : 440f;
-        float winH = isAndroid ? 800f : 540f;
+
+        // Desired size, then clamped to the real screen size (minus a small margin)
+        // so the window — and critically its close button — can never end up
+        // drawn partly (or fully) off-screen on smaller/oddly-scaled mobile screens.
+        const float margin = 24f;
+        float desiredW = isAndroid ? 640f : 440f;
+        float desiredH = isAndroid ? 800f : 540f;
+        float winW = Mathf.Min(desiredW, Screen.width - margin);
+        float winH = Mathf.Min(desiredH, Screen.height - margin);
         float x = (Screen.width - winW) / 2f;
         float y = (Screen.height - winH) / 2f;
+
+        var windowRect = new Rect(x, y, winW, winH);
+
+        // Safety net: tapping/clicking anywhere outside the window closes it.
+        // This guarantees the window is always dismissable even if the "X"
+        // button itself were ever unreachable (e.g. covered by other UI).
+        // Only acts on genuine clicks outside the window rect so it never
+        // steals input from the sliders/buttons/scrollview inside it.
+        if (Event.current.type == EventType.MouseDown && !windowRect.Contains(Event.current.mousePosition))
+            Close();
 
         var oldColor = GUI.color;
         GUI.color = new Color(0.04f, 0.05f, 0.08f, 0.95f);
@@ -83,9 +106,13 @@ public class VoiceChatSettingsWindow : MonoBehaviour
             GUILayout.BeginHorizontal();
             GUILayout.Label($"<b>{Get("vc.settings.title", "Voice Chat")}</b>", _titleStyle);
             GUILayout.FlexibleSpace();
-            GUILayout.Label("F1", new GUIStyle(GUI.skin.label) { fontSize = 10, normal = new GUIStyleState { textColor = Color.gray } });
-            GUILayout.Space(4f);
-            if (GUILayout.Button("X", GUILayout.Width(28f), GUILayout.Height(20f)))
+            if (!isAndroid)
+            {
+                GUILayout.Label("F1", new GUIStyle(GUI.skin.label) { fontSize = 10, normal = new GUIStyleState { textColor = Color.gray } });
+                GUILayout.Space(4f);
+            }
+            float closeBtnSize = isAndroid ? 44f : 20f;
+            if (GUILayout.Button("X", GUILayout.Width(closeBtnSize + 8f), GUILayout.Height(closeBtnSize)))
                 Close();
             GUILayout.EndHorizontal();
 

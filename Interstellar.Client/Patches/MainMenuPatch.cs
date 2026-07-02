@@ -56,7 +56,11 @@ public static class MainMenuCoffeeButtonPatch
             var url = IsChinese()
                 ? "https://amongusclub.cn/archives/co-fi"
                 : "https://ko-fi.com/fangkuaiya";
-            Application.OpenURL(url);
+            // Application.OpenURL is unreliable in-game (silently no-ops on some
+            // platforms/builds, especially Android). The game's own Constants.OpenUrl
+            // is what the base game uses for its external link buttons and reliably
+            // opens the link in the system/external browser.
+            Constants.OpenURL(url);
         }));
         button.OnMouseOver = new UnityEngine.Events.UnityEvent();
         button.OnMouseOver.AddListener((System.Action)(() => sr.color = Color.green));

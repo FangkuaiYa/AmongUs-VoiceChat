@@ -260,7 +260,7 @@ internal class VCClientService : WebSocketBehavior, IMessageProcessor
 
     public void SendMessage(IMessage message) => this.Send(MessagePacker.PackMessage(message).ToArray());
 
-    public void SendMessages(params IEnumerable<IMessage> messages) => this.Send(MessagePacker.PackMessages(messages).ToArray());
+    public void SendMessages(IEnumerable<IMessage> messages) => this.Send(MessagePacker.PackMessages(messages).ToArray());
 
     public void SendRawMessage(byte[] message) => this.Send(message.ToArray());
 
