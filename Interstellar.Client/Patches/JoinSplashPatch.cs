@@ -92,11 +92,28 @@ public static class JoinSplashScreen
         var elapsed = 0f;
         while (elapsed < fadeInDuration)
         {
+            // The overlay/text are parented to the camera. If a scene change happens
+            // mid-fade (disconnect, kick, game end, etc.) Unity destroys them along
+            // with the old camera, but this coroutine keeps running — writing to a
+            // destroyed SpriteRenderer/TMP throws a NullReferenceException deep in
+            // IL2CPP. Bail out cleanly instead of touching destroyed objects.
+            if (!bgSr || !textTmp)
+            {
+                _isShowing = false;
+                yield break;
+            }
+
             elapsed += Time.deltaTime;
             var t = Mathf.SmoothStep(0f, 1f, elapsed / fadeInDuration);
             bgSr.color = Color.Lerp(Color.clear, new Color(0f, 0f, 0f, 0.88f), t);
             textTmp.color = Color.Lerp(new Color(1f, 1f, 1f, 0f), new Color(1f, 1f, 1f, 0.8f), t);
             yield return null;
+        }
+
+        if (!bgSr || !textTmp)
+        {
+            _isShowing = false;
+            yield break;
         }
 
         bgSr.color = new Color(0f, 0f, 0f, 0.88f);
@@ -107,12 +124,24 @@ public static class JoinSplashScreen
         var hadInfo = VoiceChatServerState.HasInfo;
         while (Time.time < holdEnd)
         {
+            if (!textTmp)
+            {
+                _isShowing = false;
+                yield break;
+            }
+
             if (!hadInfo && VoiceChatServerState.HasInfo)
             {
                 textTmp.text = BuildSplashText();
                 hadInfo = true;
             }
             yield return null;
+        }
+
+        if (!bgSr || !textTmp)
+        {
+            _isShowing = false;
+            yield break;
         }
 
         // Fade out (0.8s)
@@ -122,6 +151,12 @@ public static class JoinSplashScreen
         var startText = textTmp.color;
         while (elapsed < fadeOutDuration)
         {
+            if (!bgSr || !textTmp)
+            {
+                _isShowing = false;
+                yield break;
+            }
+
             elapsed += Time.deltaTime;
             var t = Mathf.SmoothStep(0f, 1f, elapsed / fadeOutDuration);
             bgSr.color = Color.Lerp(startBg, Color.clear, t);
@@ -129,8 +164,8 @@ public static class JoinSplashScreen
             yield return null;
         }
 
-        Object.Destroy(overlay);
-        Object.Destroy(textGo);
+        if (overlay) Object.Destroy(overlay);
+        if (textGo) Object.Destroy(textGo);
         _isShowing = false;
     }
 
