@@ -7,7 +7,7 @@ using VoiceChatPlugin.VoiceChat;
 
 namespace VoiceChatPlugin;
 
-[BepInPlugin(Id, "Interstellar Voice Chat", "2.0.0")]
+[BepInPlugin(Id, "Interstellar Voice Chat", "2.1.0")]
 [BepInProcess("Among Us.exe")]
 public class InterstellarPlugin : BasePlugin
 {
