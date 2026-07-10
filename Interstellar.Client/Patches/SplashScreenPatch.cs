@@ -99,7 +99,7 @@ public static class SplashScreenPatch
         textGo.transform.localRotation = Quaternion.identity;
 
         var textTmp = textGo.AddComponent<TextMeshPro>();
-        textTmp.text = Get("vc.splash.title", "Interstellar Voice Chat") + " v2.1.0" + "\n<size=70%>"
+        textTmp.text = Get("vc.splash.title", "Interstellar Voice Chat") + " v2.1.1" + "\n<size=70%>"
             + Get("vc.splash.madeBy", "Made by") + " <color=#00ffff>FangkuaiYa</color>, <color=#00ffff>HayaiUme</color>\n"
             + Get("vc.splash.sponsorBy", "Sponsor by") + " <color=#ff44ff>TAIKongguo</color></size>";
         textTmp.fontSize = 2.5f;

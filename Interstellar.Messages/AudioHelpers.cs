@@ -16,8 +16,10 @@ static public class AudioHelpers
     static public IOpusEncoder GetOpusEncoder()
     {
         var encoder = OpusCodecFactory.CreateEncoder(48000, 1, Concentus.Enums.OpusApplication.OPUS_APPLICATION_VOIP);
-        // 24 kbps — clear voice quality at reasonable bandwidth
-        encoder.Bitrate = 24000;
+        // 64 kbps — high-quality voice. Opus reaches transparency for speech around 32-48 kbps;
+        // 64 kbps provides headroom for music, overlapping speakers, and noisy environments.
+        // Bandwidth is cheap; clarity matters more.
+        encoder.Bitrate = 64000;
         encoder.UseVBR = true;
         // DTX disabled — prevents speech cut-in at the start of utterances
         encoder.UseDTX = false;
