@@ -1,5 +1,4 @@
-﻿using Interstellar.Messages;
-using NAudio.Wave;
+﻿using NAudio.Wave;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,7 +19,7 @@ public class LevelMeterRouter : AbstractAudioNodeProvider<LevelMeterRouter.Prope
         int ISampleProvider.Read(float[] buffer, int offset, int count)
         {
             int read = sourceProvider.Read(buffer, offset, count);
-            Level -= Decay * ((float)count / (float)AudioHelpers.ClockRate);
+            Level -= Decay * ((float)count / (float)AudioConstants.ClockRate);
             if(Level < 0.0f) Level = 0.0f;
             for (int i = 0; i < read; i++)
             {

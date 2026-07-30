@@ -1,5 +1,4 @@
-﻿using Interstellar.Messages;
-using Interstellar.NAudio.Provider;
+﻿using Interstellar.NAudio.Provider;
 using NAudio.Dsp;
 using NAudio.Wave;
 using System;
@@ -80,7 +79,7 @@ public class FilterRouter : AbstractAudioRouter
     /// <returns>A new FilterRouter instance.</returns>
     static public FilterRouter CreateLowPassFilter(float cutoffFrequency, float qFactor, bool isGlobalRouter = false)
     {
-        return new FilterRouter(() => BiQuadFilter.LowPassFilter(AudioHelpers.ClockRate, cutoffFrequency, qFactor), isGlobalRouter);
+        return new FilterRouter(() => BiQuadFilter.LowPassFilter(AudioConstants.ClockRate, cutoffFrequency, qFactor), isGlobalRouter);
     }
 
     /// <summary>
@@ -92,7 +91,7 @@ public class FilterRouter : AbstractAudioRouter
     /// <returns>A new FilterRouter instance.</returns>
     static public FilterRouter CreateHighPassFilter(float cutoffFrequency, float qFactor, bool isGlobalRouter = false)
     {
-        return new FilterRouter(() => BiQuadFilter.HighPassFilter(AudioHelpers.ClockRate, cutoffFrequency, qFactor), isGlobalRouter);
+        return new FilterRouter(() => BiQuadFilter.HighPassFilter(AudioConstants.ClockRate, cutoffFrequency, qFactor), isGlobalRouter);
     }
 
     /// <summary>
@@ -104,7 +103,7 @@ public class FilterRouter : AbstractAudioRouter
     /// <returns>A new FilterRouter instance.</returns>
     static public FilterRouter CreateBandPassFilter(float centerFrequency, float qFactor, bool isGlobalRouter = false)
     {
-        return new FilterRouter(() => BiQuadFilter.BandPassFilterConstantPeakGain(AudioHelpers.ClockRate, centerFrequency, qFactor), isGlobalRouter);
+        return new FilterRouter(() => BiQuadFilter.BandPassFilterConstantPeakGain(AudioConstants.ClockRate, centerFrequency, qFactor), isGlobalRouter);
     }
 
     /// <summary>
@@ -116,7 +115,7 @@ public class FilterRouter : AbstractAudioRouter
     /// <returns>A new FilterRouter instance.</returns>
     static public FilterRouter CreateNotchFilter(float centerFrequency, float qFactor, bool isGlobalRouter = false)
     {
-        return new FilterRouter(() => BiQuadFilter.NotchFilter(AudioHelpers.ClockRate, centerFrequency, qFactor), isGlobalRouter);
+        return new FilterRouter(() => BiQuadFilter.NotchFilter(AudioConstants.ClockRate, centerFrequency, qFactor), isGlobalRouter);
     }
 
 

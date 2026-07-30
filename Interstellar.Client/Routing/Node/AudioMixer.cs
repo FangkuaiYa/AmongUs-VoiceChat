@@ -1,5 +1,4 @@
-﻿using Interstellar.Messages;
-using Interstellar.NAudio.Provider;
+﻿using Interstellar.NAudio.Provider;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;
@@ -20,7 +19,7 @@ internal class AudioMixer : ISampleProvider
     private float[] temp = null!;
     public AudioMixer(int channels)
     {
-        waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(AudioHelpers.ClockRate, channels);
+        waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(AudioConstants.ClockRate, channels);
     }
 
     WaveFormat ISampleProvider.WaveFormat => waveFormat;

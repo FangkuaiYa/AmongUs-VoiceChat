@@ -41,6 +41,9 @@ public static class VoiceChatConfig
     /// <summary>Voice server URL to force when ForceVoiceServerEnabled is true.</summary>
     public static string ForceVoiceServerUrl => _forceVoiceServerUrl?.Value ?? "";
 
+    /// <summary>AES-256-GCM encryption key (64 hex chars). Empty = no encryption.</summary>
+    public static string EncryptionKey => _encryptionKey?.Value ?? "";
+
     private static ConfigEntry<string>? _mic, _speaker, _server;
     private static ConfigEntry<float>? _masterVol, _micVol;
     private static ConfigEntry<float>? _hostMaxDist;
@@ -48,7 +51,7 @@ public static class VoiceChatConfig
     private static ConfigEntry<bool>? _hostOnlyGhost, _hostHearVent, _hostHearVentPlayers, _hostVentChat;
     private static ConfigEntry<bool>? _hostCommSab, _hostCamera, _hostImpRadio, _hostMeetingOnly;
     private static ConfigEntry<bool>? _useApiServerList, _forceVoiceServerEnabled;
-    private static ConfigEntry<string>? _customServerListJson, _forceVoiceServerUrl;
+    private static ConfigEntry<string>? _customServerListJson, _forceVoiceServerUrl, _encryptionKey;
 
     /// <summary>Cached list of microphone device names for UI cycling.</summary>
     public static List<string> MicrophoneDevices { get; } = new();
@@ -132,6 +135,8 @@ public static class VoiceChatConfig
             "Force all Among Us servers to use a single voice server URL.");
         _forceVoiceServerUrl = cfg.Bind("VoiceChat.Server", "ForceVoiceServerUrl", "",
             "Voice server WebSocket URL to use when ForceVoiceServerEnabled is true. Leave empty for default fallback.");
+        _encryptionKey = cfg.Bind("VoiceChat.Server", "EncryptionKey", "",
+            "AES-256-GCM encryption key as 64 hex characters (32 bytes). Leave empty to disable encryption. Must match the server's -secret flag.");
 
         ApplyLocalHostSettingsToSynced();
     }

@@ -1,10 +1,7 @@
 #pragma warning disable CS8618, CS8602, CS8603, CS8604
 using Concentus;
-using Interstellar.Messages;
 using Interstellar.Network;
 using NAudio.Wave;
-using Org.BouncyCastle.Utilities.Encoders;
-using SIPSorcery.Net;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -57,7 +54,7 @@ public class ManualMicrophone : IMicrophone
 
     // Always 40ms frames (25 packets/sec) — halves packet rate vs mixing 20ms,
     // cutting RTP+WebSocket per-packet overhead in half with negligible latency impact.
-    private const int AudioLength = (int)(AudioHelpers.ClockRate * 0.040f); // 40ms @ 48kHz = 1920 samples
+    private const int AudioLength = (int)(AudioConstants.ClockRate * 0.040f); // 40ms @ 48kHz = 1920 samples
     private float[] cachedAudio = new float[AudioLength];
     private int cachedLength = 0;
     private float[] sampleBuffer = new float[AudioLength];
@@ -68,7 +65,7 @@ public class ManualMicrophone : IMicrophone
     {
         float max = audioData.Max();
         // Faster decay (0.75f vs old 0.5f) — cuts off silence more aggressively, saving bandwidth
-        level -= (float)audioData.Length / (float)AudioHelpers.ClockRate * 0.75f;
+        level -= (float)audioData.Length / (float)AudioConstants.ClockRate * 0.75f;
         if (level < 0f) level = 0f;
         if (max > level) level = max;
 
@@ -164,7 +161,7 @@ public class WindowsMicrophone : IMicrophone
         }
 
         // Faster decay (0.75f vs old 0.5f) — cuts off silence more aggressively
-        level -= (float)samples / (float)AudioHelpers.ClockRate * 0.75f;
+        level -= (float)samples / (float)AudioConstants.ClockRate * 0.75f;
         if (level < 0f) level = 0f;
         if (max > level) level = max;
 

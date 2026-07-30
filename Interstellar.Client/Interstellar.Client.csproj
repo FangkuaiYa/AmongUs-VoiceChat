@@ -33,8 +33,9 @@
        resources by the AssemblyResolve handler.
        ================================================================ -->
   <ItemGroup>
-    <ProjectReference Include="..\Interstellar.Messages\Interstellar.Messages.csproj" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Concentus" Version="2.2.2" />
+    <PackageReference Include="SIPSorcery.WebSocketSharp" Version="0.0.1" />
   </ItemGroup>
 
   <!-- ================================================================
@@ -52,7 +53,7 @@
        Second build embeds them after post-build copies DLLs to Libs/.
        ================================================================ -->
   <ItemGroup>
-    <EmbeddedResource Include="Libs\*.dll" Condition="Exists('Libs\Interstellar.Messages.dll')">
+    <EmbeddedResource Include="Libs\*.dll" Condition="Exists('Libs\NAudio.dll')">
       <LogicalName>Lib.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>

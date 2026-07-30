@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HarmonyLib;
+using Interstellar.Network;
 using UnityEngine.Networking;
 
 namespace VoiceChatPlugin;
@@ -49,6 +50,13 @@ internal static class CustomServerLoader
 
 	internal static void Load()
 	{
+		// Initialize encryption before any connections
+		var encKey = VoiceChat.VoiceChatConfig.EncryptionKey;
+		if (!string.IsNullOrEmpty(encKey))
+		{
+			CryptoHelper.Initialize(CryptoHelper.ParseHexKey(encKey));
+		}
+
 		ParseCustomServers();
 
 		if (VoiceChat.VoiceChatConfig.UseApiServerList)

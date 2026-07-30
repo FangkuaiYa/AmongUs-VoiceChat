@@ -1,26 +1,29 @@
 # Interstellar Voice Chat
 
-Real-time proximity voice chat for Among Us. A single BepInEx plugin DLL plus a standalone relay server.
+Real-time proximity voice chat for Among Us. A single BepInEx plugin DLL plus a lightweight Go relay server.
 
 ## Project Structure
 
 ```
 AmongUs-VoiceChat/
 ├── Interstellar.sln
+├── voice-server-go/           # Go voice relay server
+│   ├── main.go
+│   ├── Dockerfile
+│   └── internal/
+│       ├── crypto/            #   AES-256-GCM encryption
+│       ├── audio/             #   Jitter buffer, FEC, rate limiting
+│       ├── protocol/          #   Binary message protocol
+│       └── server/            #   WebSocket + HTTP + room manager
 ├── Interstellar.Client/       # BepInEx plugin — audio engine + game integration
-│   ├── Network/               #   WebRTC connection
+│   ├── Network/               #   Binary protocol + AES-GCM crypto
 │   ├── Routing/               #   Audio routing graph (mixer, filters, panner)
 │   ├── VoiceChat/             #   Mic, Speaker, VCRoom
-│   ├── Game/                  #   Among Us integration (HUD, config, settings UI, popups)
-│   ├── Patches/               #   Harmony patches (splash screens, join overlay)
+│   ├── Game/                  #   Among Us integration (HUD, config, settings UI)
+│   ├── Patches/               #   Harmony patches
 │   ├── Android/               #   Android mic/speaker via Starlight
-│   ├── NAudio/                #   Audio buffer providers
-│   ├── Resources/             #   Sprites
-│   └── InterstellarPlugin.cs  #   Entry point
-├── Interstellar.Messages/     # Shared WebSocket / WebRTC message protocol
-├── Interstellar.Server/       # Voice relay server (WebSocket + WebRTC)
-├── docker-compose.yml         # Docker: Server + Coturn
-├── Dockerfile
+│   └── AudioConstants.cs      #   Shared audio constants
+├── docker-compose.yml         # Docker: Go Server + Coturn
 ├── nuget.config
 ├── turnserver.conf
 └── .github/workflows/build.yml
@@ -28,50 +31,70 @@ AmongUs-VoiceChat/
 
 ## Build
 
-**Prerequisites:** .NET 8 SDK (server), .NET 6 SDK (plugin), 7-Zip (Windows — dependency packaging)
+**Prerequisites:** Go 1.26+ (server), .NET 6 SDK (plugin)
 
 ```bash
-# Plugin (two-pass: first compile, second embeds dependencies)
-dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release
-dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release
+# ── Go Server ──
+cd voice-server-go
+go build -buildvcs=false -o voice-server .
 
-# Server
-dotnet publish Interstellar.Server/Interstellar.Server.csproj -c Release -o ./server
+# ── Plugin (two-pass: first compile, second embeds dependencies) ──
+dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release
+dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release
 ```
 
-**Install:** Copy `Interstellar.Client.dll` and its dependencies from `bin/Release/net6.0/` into `BepInEx/plugins/`.
+**Install:** Copy `Interstellar.Client.dll` into `BepInEx/plugins/`.
 
 ## Server
 
-### Running
+### Quick Start
 
 ```bash
-# Basic
-dotnet run --project Interstellar.Server 0.0.0.0:22021 --optimal-players 12
+# Basic (HTTP, port 8000)
+./voice-server -addr :8000
 
-# With Coturn
-dotnet run --project Interstellar.Server 0.0.0.0:22021 \
-  --optimal-players 12 \
-  --coturn turn:your-server.com:3478 \
-  --coturn-user interstellar --coturn-pass yourpassword
+# Production with TURN and optimizations
+./voice-server \
+  -addr 0.0.0.0:22021 \
+  -optimal 100 \
+  -turn turn:your-turn-server.com:3478 \
+  -turn-user your-username \
+  -turn-pass your-password \
+  -redundancy 1
 
-# With WSS (TLS)
-dotnet run --project Interstellar.Server 0.0.0.0:22021 \
-  -s /path/to/cert.pfx -p password
+# With TLS (WSS)
+./voice-server -addr :22021 -tls-cert cert.pem -tls-key key.pem
+
+# Docker
+docker compose up -d voice-server
 ```
 
 ### CLI Reference
 
 ```
-Interstellar.Server <bind_address> [options]
+voice-server [flags]
 
-  -s, --secure <path>          WSS certificate (.pfx)
-  -p, --password <pwd>         Certificate password
-  -t, --coturn <url>           Coturn TURN URL
-  --coturn-user <user>         TURN username
-  --coturn-pass <pass>         TURN password
-  -op, --optimal-players <n>   Optimal player count (triggers capacity warning)
+  -addr string               Listen address (default ":8000")
+  -optimal int               Optimal player count (triggers capacity warning)
+  -turn string               TURN server URL (e.g., turn:ip:3478)
+  -turn-user string          TURN username
+  -turn-pass string          TURN password
+  -tls-cert string           TLS certificate path (enables WSS)
+  -tls-key string            TLS key path (enables WSS)
+  -secret string             AES-256-GCM key (64 hex chars = 32 bytes, optional)
+  -redundancy int            Audio redundancy for loss mitigation (0=off, 1=2x, 2=3x)
+  -max-bandwidth int         Max bandwidth per client in bytes/sec (0=unlimited)
 ```
+
+### Environment Variables (Docker)
+
+| Variable | Equivalent Flag | Default |
+|----------|----------------|---------|
+| `OPTIMAL_PLAYERS` | `-optimal` | `0` |
+| `TURN_URL` | `-turn` | (empty) |
+| `TURN_USER` | `-turn-user` | (empty) |
+| `TURN_PASS` | `-turn-pass` | (empty) |
+| `MAX_BANDWIDTH_PER_CLIENT` | `-max-bandwidth` | `0` |
 
 ### Dashboard
 
@@ -79,25 +102,33 @@ Visit `http://your-server:22021/`.
 
 | Endpoint | Response |
 |----------|----------|
-| `GET /` | HTML dashboard (optimal players, rooms, clients, VC URL, Coturn status) |
+| `GET /` | HTML dashboard (rooms, clients, encryption status, redundancy) |
 | `GET /health` | `{"status":"ok"}` |
-| `GET /stats` | `{"status":"ok","clients":5,"rooms":2,"optimalPlayers":12,"serverUrl":"http://...","coturn":true,"wss":false}` |
-| `GET /api/rooms` | Full room list with player details, `optimalPlayers`, and `serverUrl` |
+| `GET /stats` | `{"status":"ok","clients":5,"rooms":2,...}` |
+| `GET /api/rooms` | Full room list with player details |
 
-### Player Capacity
+### Server Features
 
-When `--optimal-players` is set, the server broadcasts player counts to all connected clients. If the total online count reaches the optimal value, a full-screen popup warns players and suggests switching servers or sponsoring an upgrade.
+| Feature | Description |
+|---------|-------------|
+| **AES-256-GCM** | Optional application-layer encryption with per-frame random nonce. |
+| **Audio Redundancy** | Sends each Opus frame N+1 times for packet loss mitigation. |
+| **Jitter Buffer** | 5-frame (~100ms) reorder buffer per audio source. |
+| **Bandwidth Limiter** | Token-bucket per-client rate limiting. |
+| **Zero-decode Relay** | Server never decodes Opus — pure passthrough with minimal latency. |
+| **Ping/Pong** | 15s WebSocket keep-alive, 45s timeout disconnect. |
+| **Docker** | ~8 MB Alpine image. |
 
 ## Voice Server Matching
 
-The plugin resolves each Among Us region to a voice server URL through three layers, applied in priority order:
+The plugin resolves each Among Us region to a voice server URL through three layers:
 
 | Priority | Source | Behavior |
 |----------|--------|----------|
 | 1 | `ForceVoiceServer` | Overrides everything — all regions use a single VC server |
-| 2 | `CustomServerListJson` | Overrides API entries with the same `name` (case-insensitive) |
-| 3 | API | Fetched from `https://api.amongusclub.cn/Interstellar/ServerList.json` at startup |
-| Fallback | `ws://47.122.116.50:22021` | Used when no match is found |
+| 2 | `CustomServerListJson` | Overrides API entries with the same `name` |
+| 3 | API | Fetched from the configured server list API at startup |
+| Fallback | Built-in default | Used when no match is found |
 
 **API and custom server format:**
 
@@ -105,43 +136,19 @@ The plugin resolves each Among Us region to a voice server URL through three lay
 {
   "servers": [
     {
-      "name": "Modded Asia (MAS)",
-      "address": "au-as.duikbo.at",
+      "name": "Region Name",
+      "address": "game-server.example.com",
       "port": 443,
-      "vc": "ws://47.122.116.50:22021",
-      "vcLocation": "Hong Kong"
+      "vc": "ws://voice-server.example.com:22021",
+      "vcLocation": "Location Label"
     }
   ]
 }
 ```
 
-- `name` — Among Us region name (exact, case-insensitive match)
-- `vc` — WebSocket URL of the voice server for that region (optional; falls back to default)
-- `vcLocation` — Human-readable label shown in the HUD instead of the IP
-- Custom servers override API entries with the same `name`. If the API is disabled, only the custom list is used.
-
-## Plugin Features
-
-### Keyboard Shortcuts
-
-| Key | Function |
-|-----|----------|
-| `F1` | Toggle VC settings window |
-| `M` | Cycle mic mode: Global → Impostor Radio → Muted |
-| `N` | Toggle speaker on/off |
-
-### Settings UI
-
-Press `F1` or click the **VC** button in the game's Options menu to open the settings window. It has two sections:
-
-- **Personal** — Microphone device, speaker device, mic volume, master volume (device selection hidden on Android)
-- **Room** (host only) — Max chat distance, Walls Block Sound, Only Hear In Sight, Impostor Hear Ghosts, Only Ghosts Can Talk, Hear In Vent, Vent Private Chat, Comms Sabotage Mutes, Camera Can Hear, Impostor Private Radio, Only Meeting / Lobby
-
-Non-host players see room settings grayed out. All changes are persisted to the BepInEx config file.
-
-### Join Overlay & Capacity Popup
-
-On joining a game, a fade-in overlay shows the voice server address and current player count. When the server hits its optimal capacity, a full-screen popup warns players.
+- `name` — Among Us region name (case-insensitive)
+- `vc` — WebSocket URL of the voice server
+- `vcLocation` — Human-readable label shown in HUD
 
 ## Plugin Config
 
@@ -157,9 +164,10 @@ MicVolume = 1.0
 
 [VoiceChat.Server]
 UseApiServerList = true
-CustomServerListJson =      # One-line JSON; overrides API entries with the same name
+CustomServerListJson =      # One-line JSON; overrides API entries
 ForceVoiceServerEnabled = false
 ForceVoiceServerUrl =       # VC WebSocket URL when force is enabled
+EncryptionKey =             # AES-256-GCM key (64 hex chars, optional)
 
 [VoiceChat.Room]
 MaxChatDistance = 6
@@ -175,40 +183,43 @@ ImpostorPrivateRadio = false
 OnlyMeetingOrLobby = false
 ```
 
+### Keyboard Shortcuts
+
+| Key | Function |
+|-----|----------|
+| `F1` | Toggle VC settings window |
+| `M` | Cycle mic mode: Global → Impostor Radio → Muted |
+| `N` | Toggle speaker on/off |
+
 ## Docker
 
 ```bash
-export COTURN_URL=turn:your-server.com:3478
-export COTURN_USER=interstellar
-export COTURN_PASS=your_secure_password
-
-# Edit turnserver.conf user= line, then:
+# Edit turnserver.conf with your TURN credentials, then:
 docker compose up -d
 ```
 
 | Port | Protocol | Service |
 |------|----------|---------|
-| 22021 | TCP | Interstellar WebSocket |
+| 22021 | TCP | Go Voice Server WebSocket |
 | 3478 | TCP+UDP | Coturn STUN/TURN |
 | 5349 | TCP+UDP | Coturn TURN TLS |
-| 49152-49252 | UDP | Coturn relay |
+| 49152–49252 | UDP | Coturn relay |
 
 ## CI
 
 GitHub Actions builds on push:
 
-- **Server** — single-file self-contained binaries for `linux-x64`, `linux-arm64`, `win-x64`, `osx-x64`
-- **Client** — plugin DLL
-- Tag pushes trigger a draft GitHub Release with all artifacts.
+- **Server** — Go cross-compile: `linux-amd64`, `linux-arm64`, `windows-amd64`, `darwin-amd64`
+- **Client** — .NET 6 BepInEx plugin (two-pass build)
+- **Docker** — Alpine image build (on tags)
+- **Release** — Auto-create GitHub Release with all artifacts (on tags)
 
 ## Credits
 
-- [Interstellar](https://github.com/Dolly1016/Interstellar) — voice server framework by Dolly
-- [Nebula on the Ship](https://github.com/Dolly1016/Nebula) — architecture reference
-- AOU Team — Starlight Android Audio API
 - [NAudio](https://github.com/naudio/NAudio) — .NET audio library
-- [SIPSorcery](https://github.com/sipsorcery/sipsorcery) — .NET WebRTC library
+- [Concentus](https://github.com/lostromb/concentus) — .NET Opus codec
 - [Coturn](https://github.com/coturn/coturn) — TURN/STUN server
+- [Gorilla WebSocket](https://github.com/gorilla/websocket) — Go WebSocket library
 
 ## License
 

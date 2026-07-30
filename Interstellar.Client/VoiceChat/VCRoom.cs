@@ -1,6 +1,4 @@
-﻿using Interstellar.Messages;
-using Interstellar.Messages.Variation;
-using Interstellar.Network;
+﻿using Interstellar.Network;
 using Interstellar.Routing;
 using NAudio.Wave;
 using VoiceChatPlugin;
@@ -183,6 +181,11 @@ public class VCRoom : IConnectionContext, IHasAudioPropertyNode, IMicrophoneCont
         instance.AddSamples(samples, 0, length);
     }
 
+    void IConnectionContext.OnClientConnected(int clientId)
+    {
+        GetOrCreateAudioInstance(clientId, false);
+    }
+
     void IConnectionContext.OnClientDisconnected(int clientId)
     {
         lock (_audioLock)
@@ -208,7 +211,8 @@ public class VCRoom : IConnectionContext, IHasAudioPropertyNode, IMicrophoneCont
 
     public void Rejoin()
     {
-        connection.SendZeroSizeMessage(MessageTag.RequestReload);
+        // Rejoin by updating local profile — server will re-sync state.
+        // The new protocol has no explicit reload; reconnect handles it.
     }
 
     Dictionary<int, (string name, byte id)> pooledProfile = [];
@@ -237,37 +241,52 @@ public class VCRoom : IConnectionContext, IHasAudioPropertyNode, IMicrophoneCont
         onUpdateMuteStatus?.Invoke(clientId, isMute, isImpostorRadio);
     }
 
-    void IConnectionContext.OnHostSettingsReceived(HostSettingsMessage settings)
+    void IConnectionContext.OnHostSettingsReceived(byte[] rawSettings)
     {
+        // Deserialize host settings from legacy binary format
+        // Format: [4 bytes float: MaxChatDistance][1 byte bool each for remaining 11 flags]
+        if (rawSettings.Length < 4 + 11) return;
         var s = VoiceChatConfig.SyncedRoomSettings;
-        s.MaxChatDistance = settings.MaxChatDistance;
-        s.WallsBlockSound = settings.WallsBlockSound;
-        s.OnlyHearInSight = settings.OnlyHearInSight;
-        s.ImpostorHearGhosts = settings.ImpostorHearGhosts;
-        s.OnlyGhostsCanTalk = settings.OnlyGhostsCanTalk;
-        s.HearInVent = settings.HearInVent;
-        s.HearVentPlayers = settings.HearVentPlayers;
-        s.VentPrivateChat = settings.VentPrivateChat;
-        s.CommsSabDisables = settings.CommsSabDisables;
-        s.CameraCanHear = settings.CameraCanHear;
-        s.ImpostorPrivateRadio = settings.ImpostorPrivateRadio;
-        s.OnlyMeetingOrLobby = settings.OnlyMeetingOrLobby;
+        int p = 0;
+        s.MaxChatDistance = System.BitConverter.ToSingle(rawSettings, p); p += 4;
+        s.WallsBlockSound = rawSettings[p++] != 0;
+        s.OnlyHearInSight = rawSettings[p++] != 0;
+        s.ImpostorHearGhosts = rawSettings[p++] != 0;
+        s.OnlyGhostsCanTalk = rawSettings[p++] != 0;
+        s.HearInVent = rawSettings[p++] != 0;
+        s.HearVentPlayers = rawSettings[p++] != 0;
+        s.VentPrivateChat = rawSettings[p++] != 0;
+        s.CommsSabDisables = rawSettings[p++] != 0;
+        s.CameraCanHear = rawSettings[p++] != 0;
+        s.ImpostorPrivateRadio = rawSettings[p++] != 0;
+        s.OnlyMeetingOrLobby = rawSettings[p++] != 0;
         VoiceChatConfig.OnSyncedSettingsChanged?.Invoke(s);
-        // VoiceChatPlugin.InterstellarPlugin.Logger.LogInfo("[VC] Host settings received via voice server.");
     }
 
-    void IConnectionContext.OnServerInfoReceived(ServerInfoMessage message)
+    void IConnectionContext.OnServerInfoReceived(int optimalPlayers, int totalClients, string serverUrl)
     {
-        // IMPORTANT: This runs on WebSocket's callback thread — NOT the Unity main thread.
-        // Only update data state here. UI triggers must happen on the main thread (InterstellarRoomDriver).
-        VoiceChatServerState.Update(message);
-        // VoiceChatPlugin.InterstellarPlugin.Logger.LogInfo(
-        //     $"[VC] Server info: optimal={message.OptimalPlayers}, current={message.CurrentTotalPlayers}, vc={message.VoiceServerUrl}");
+        VoiceChatServerState.Update(optimalPlayers, totalClients, serverUrl);
     }
 
     public void SendHostSettings(VoiceChatRoomSettings s)
     {
-        connection.SendHostSettings(s);
+        // Serialize to binary: [4 bytes float: maxDist][11 bytes: bools]
+        var raw = new byte[4 + 11];
+        int p = 0;
+        var distBytes = System.BitConverter.GetBytes(s.MaxChatDistance);
+        System.Buffer.BlockCopy(distBytes, 0, raw, p, 4); p += 4;
+        raw[p++] = (byte)(s.WallsBlockSound ? 1 : 0);
+        raw[p++] = (byte)(s.OnlyHearInSight ? 1 : 0);
+        raw[p++] = (byte)(s.ImpostorHearGhosts ? 1 : 0);
+        raw[p++] = (byte)(s.OnlyGhostsCanTalk ? 1 : 0);
+        raw[p++] = (byte)(s.HearInVent ? 1 : 0);
+        raw[p++] = (byte)(s.HearVentPlayers ? 1 : 0);
+        raw[p++] = (byte)(s.VentPrivateChat ? 1 : 0);
+        raw[p++] = (byte)(s.CommsSabDisables ? 1 : 0);
+        raw[p++] = (byte)(s.CameraCanHear ? 1 : 0);
+        raw[p++] = (byte)(s.ImpostorPrivateRadio ? 1 : 0);
+        raw[p++] = (byte)(s.OnlyMeetingOrLobby ? 1 : 0);
+        connection.SendHostSettings(raw);
     }
 
     void OnAudioSent(float[] buffer, int count)
@@ -297,5 +316,6 @@ public class VCRoom : IConnectionContext, IHasAudioPropertyNode, IMicrophoneCont
         Speaker = null;
     }
 
-    public int SampleRate => AudioHelpers.ClockRate;
+    public const int SampleRateConst = 48000;
+    public int SampleRate => SampleRateConst;
 }

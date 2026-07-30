@@ -1,318 +1,283 @@
 ﻿using Concentus;
-using Interstellar.Messages;
-using Interstellar.Messages.Variation;
+using Interstellar.Network.Protocol;
 using NAudio.Wave;
-using SIPSorcery.Net;
-using System;
-using System.Text;
 using VoiceChatPlugin;
-using VoiceChatPlugin.VoiceChat;
-using WebSocketSharp;
 
 namespace Interstellar.Network;
 
 internal interface IConnectionContext
 {
-    /// <summary>
-    /// Called when an audio frame is received.
-    /// </summary>
-    /// <param name="clientId">The sender client ID.</param>
-    /// <param name="samples">Audio sample array. The array is reused after this call; do not use for other purposes.</param>
-    /// <param name="length">Length of the audio data.</param>
     void OnAudioFrameReceived(int clientId, float[] samples, int length);
-
-    /// <summary>
-    /// Called when a client disconnects.
-    /// </summary>
-    void OnClientDisconnected(int clientId); 
-
-    /// <summary>
-    /// Called when a client profile is updated.
-    /// </summary>
+    void OnClientConnected(int clientId);
+    void OnClientDisconnected(int clientId);
     void OnClientProfileUpdated(int clientId, string playerName, byte playerId);
-
-    /// <summary>
-    /// Called when a mute status update is received.
-    /// </summary>
     void OnReceiveMuteStatus(int clientId, bool isMute, bool isImpostorRadio);
-
-    /// <summary>
-    /// Called when a custom message is received.
-    /// </summary>
     void OnCustomMessageReceived(byte[] message);
-
-    /// <summary>
-    /// Called when host room settings are received from the server.
-    /// </summary>
-    void OnHostSettingsReceived(HostSettingsMessage settings);
-
-    /// <summary>
-    /// Called when server info is received (optimal players, current count, VC URL).
-    /// </summary>
-    void OnServerInfoReceived(ServerInfoMessage message);
+    void OnHostSettingsReceived(byte[] rawSettings);
+    void OnServerInfoReceived(int optimalPlayers, int totalClients, string serverUrl);
 }
 
 /// <summary>
-/// Connects to the server and handles audio/data transmission and reception.
+/// Connects to the Go-based Interstellar Voice Server via raw binary WebSocket.
+/// No WebRTC/SDP/ICE — pure Opus relay.
 /// </summary>
-internal class RoomConnection : IMessageProcessor
+internal class RoomConnection
 {
     private readonly string roomCode;
     private readonly string region;
-    private readonly WebSocket socket;
-    private RTCPeerConnection? connection = null;
-    private ProfileMessage? profileMessage = null;
-    private int? myClientId = null;
+    private readonly WebSocketSharp.WebSocket socket;
+    private readonly IConnectionContext context;
 
+    private int? myClientId;
     public int MyClientId => myClientId ?? -1;
 
-    private AudioStream? localAudioStream;
+    private string? pendingName;
+    private byte pendingPid;
 
-    IConnectionContext context;
+    private readonly IOpusEncoder encoder;
+    private readonly byte[] encodedBuffer = new byte[2048];
+    private uint audioSeq;
+
+    private readonly Dictionary<int, IOpusDecoder> decoders = new(64);
+    private readonly HashSet<int> decodeErrors = new();
+    private bool firstAudioFrame = true;
+    private readonly HashSet<int> newAudioSources = new();
+
     public RoomConnection(IConnectionContext context, string roomCode, string region, string url)
     {
         this.context = context;
         this.roomCode = roomCode;
         this.region = region;
 
-        this.socket = new WebSocket(url) { Compression = WebSocketSharp.CompressionMethod.Deflate };
-        if (url.StartsWith("wss:")) this.socket.SslConfiguration.EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls11 | System.Security.Authentication.SslProtocols.Tls12;
-        this.socket.OnMessage += (sender, e) =>
+        encoder = CreateOpusEncoder();
+
+        socket = new WebSocketSharp.WebSocket(url)
         {
-            if (e.IsBinary) MessagePacker.UnpackMessages(e.RawData, this);
+            Compression = WebSocketSharp.CompressionMethod.Deflate
         };
-        this.socket.OnError += (sender, e) =>
+        if (url.StartsWith("wss:", System.StringComparison.OrdinalIgnoreCase))
+            socket.SslConfiguration.EnabledSslProtocols =
+                System.Security.Authentication.SslProtocols.Tls11 |
+                System.Security.Authentication.SslProtocols.Tls12;
+
+        socket.OnOpen += OnSocketOpen;
+        socket.OnMessage += OnSocketMessage;
+        socket.OnError += (_, e) =>
+            InterstellarPlugin.Logger.LogError($"[VC] WebSocket error: {e.Message}");
+        socket.OnClose += (_, e) =>
+            InterstellarPlugin.Logger.LogWarning($"[VC] WebSocket closed: code={e.Code} reason={e.Reason}");
+
+        socket.Connect();
+    }
+
+    private void OnSocketOpen(object? sender, System.EventArgs e)
+    {
+        InterstellarPlugin.Logger.LogInfo($"[VC] Connected (room={roomCode} region={region}).");
+        var joinReq = new JoinRequestMsg(roomCode, region);
+        SendRaw(ProtoHelpers.WrapFrame(joinReq.Encode()));
+        FlushProfile();
+    }
+
+    private void OnSocketMessage(object? sender, WebSocketSharp.MessageEventArgs e)
+    {
+        if (!e.IsBinary || e.RawData == null) return;
+
+        var rawData = e.RawData;
+
+        // Decrypt if encryption is enabled
+        if (CryptoHelper.IsEnabled)
         {
-            InterstellarPlugin.Logger.LogError($"[VC] WebSocket error: {e.Message} (url={url})");
-        };
-        this.socket.OnClose += (sender, e) =>
+            var decrypted = CryptoHelper.DecryptFrame(rawData);
+            if (decrypted == null) return;
+            rawData = decrypted;
+        }
+
+        ProtoHelpers.DispatchFrame(rawData, (msgType, data, offset, length) =>
         {
-            InterstellarPlugin.Logger.LogWarning($"[VC] WebSocket closed: code={e.Code} reason={e.Reason} (url={url})");
-        };
-        Connect();
+            switch (msgType)
+            {
+                case MessageType.JoinResponse: HandleJoinResponse(data, offset, length); break;
+                case MessageType.ProfileShare: HandleProfileShare(data, offset, length); break;
+                case MessageType.MuteShare:    HandleMuteShare(data, offset, length); break;
+                case MessageType.AudioData:    HandleAudioData(data, offset, length); break;
+                case MessageType.Leave:        HandleLeave(data, offset, length); break;
+                case MessageType.HostSettings: HandleHostSettings(data, offset, length); break;
+                case MessageType.ServerInfo:   HandleServerInfo(data, offset, length); break;
+                case MessageType.CustomData:   HandleCustomData(data, offset, length); break;
+                case MessageType.Ping:         SendRaw(ProtoHelpers.WrapFrame(ProtoHelpers.EncodePing())); break;
+            }
+        });
+    }
+
+    private void HandleJoinResponse(byte[] data, int offset, int length)
+    {
+        var resp = JoinResponseMsg.Decode(data, offset, length);
+        myClientId = resp.YourClientId;
+        InterstellarPlugin.Logger.LogInfo($"[VC] Assigned client ID: {resp.YourClientId}");
+        foreach (var c in resp.Clients)
+        {
+            if (c.ClientId != resp.YourClientId)
+            {
+                context.OnClientConnected(c.ClientId);
+                context.OnClientProfileUpdated(c.ClientId, c.PlayerName, c.PlayerId);
+                context.OnReceiveMuteStatus(c.ClientId, c.IsMuted, false);
+            }
+        }
+        if (resp.HostSettings != null && resp.HostSettings.Length > 0)
+            context.OnHostSettingsReceived(resp.HostSettings);
+    }
+
+    private void HandleProfileShare(byte[] data, int offset, int length)
+    {
+        var msg = ProfileShareMsg.Decode(data, offset, length);
+        context.OnClientConnected(msg.ClientId);
+        context.OnClientProfileUpdated(msg.ClientId, msg.PlayerName, msg.PlayerId);
+    }
+
+    private void HandleMuteShare(byte[] data, int offset, int length)
+    {
+        var msg = MuteShareMsg.Decode(data, offset, length);
+        context.OnReceiveMuteStatus(msg.ClientId, msg.IsMuted, msg.IsImpostorRadio);
+    }
+
+    private void HandleAudioData(byte[] data, int offset, int length)
+    {
+        var frame = AudioFrameMsg.Decode(data, offset, length);
+        if (frame == null) return;
+
+        if (firstAudioFrame)
+        {
+            firstAudioFrame = false;
+            InterstellarPlugin.Logger.LogInfo($"[VC:AudioRx] First audio frame (client={frame.SourceId}, bytes={frame.OpusData.Length}).");
+        }
+        if (newAudioSources.Add(frame.SourceId))
+            InterstellarPlugin.Logger.LogInfo($"[VC:AudioRx] New audio source: client {frame.SourceId}.");
+
+        try
+        {
+            if (!decoders.TryGetValue(frame.SourceId, out var decoder))
+            {
+                decoder = CreateOpusDecoder();
+                decoders[frame.SourceId] = decoder;
+            }
+            float[] buf = new float[2048];
+            int samples = decoder.Decode(frame.OpusData, buf, buf.Length);
+            context.OnAudioFrameReceived(frame.SourceId, buf, samples);
+        }
+        catch (System.Exception ex)
+        {
+            if (decodeErrors.Add(frame.SourceId))
+                InterstellarPlugin.Logger.LogWarning($"[VC] Opus decode error (client {frame.SourceId}): {ex.Message}");
+        }
+    }
+
+    private void HandleLeave(byte[] data, int offset, int length)
+    {
+        var msg = LeaveMsg.Decode(data, offset, length);
+        context.OnClientDisconnected(msg.ClientId);
+        decoders.Remove(msg.ClientId);
+        newAudioSources.Remove(msg.ClientId);
+    }
+
+    private void HandleHostSettings(byte[] data, int offset, int length)
+    {
+        int rawLen = length - 1;
+        if (rawLen <= 0) return;
+        var raw = new byte[rawLen];
+        System.Buffer.BlockCopy(data, offset + 1, raw, 0, rawLen);
+        context.OnHostSettingsReceived(raw);
+    }
+
+    private void HandleServerInfo(byte[] data, int offset, int length)
+    {
+        var msg = ServerInfoMsg.Decode(data, offset, length);
+        context.OnServerInfoReceived(msg.OptimalPlayers, msg.TotalClients, msg.ServerUrl);
+    }
+
+    private void HandleCustomData(byte[] data, int offset, int length)
+    {
+        int rawLen = length - 1;
+        if (rawLen <= 0) return;
+        var raw = new byte[rawLen];
+        System.Buffer.BlockCopy(data, offset + 1, raw, 0, rawLen);
+        context.OnCustomMessageReceived(raw);
+    }
+
+    // ── Outgoing ──────────────────────────────────────────────
+
+    public void UpdateProfile(string playerName, byte playerId)
+    {
+        pendingName = playerName;
+        pendingPid = playerId;
+        if (socket.ReadyState == WebSocketSharp.WebSocketState.Open)
+            FlushProfile();
+    }
+
+    private void FlushProfile()
+    {
+        if (pendingName == null) return;
+        SendRaw(ProtoHelpers.WrapFrame(ProtoHelpers.EncodeProfile(pendingName, pendingPid)));
+        pendingName = null;
     }
 
     public void UpdateMuteStatus(bool mute, bool isImpostorRadio = false)
     {
-        var message = new UpdateMuteStatusMessage(mute, isImpostorRadio);
-        socket.SendMessage(message);
+        SendRaw(ProtoHelpers.WrapFrame(ProtoHelpers.EncodeMuteStatus(mute, isImpostorRadio)));
     }
 
-    /// <summary>
-    /// Updates the player's in-game profile information.
-    /// </summary>
-    public void UpdateProfile(string playerName, byte playerId)
-    {
-        var message = new ProfileMessage(playerName, playerId);
-        profileMessage = message;
-        TrySendProfile();
-    }
-
-    private void TrySendProfile()
-    {
-        if (profileMessage != null && socket.IsAlive)
-        {
-            this.socket.SendMessage(profileMessage);
-            profileMessage = null;
-        }
-    }
-
-    private void Connect()
-    {
-        this.socket.OnOpen += (sender, e) =>
-        {
-            InterstellarPlugin.Logger.LogInfo($"[VC] WebSocket connected (room={this.roomCode} region={this.region}).");
-            SetUpRTCConnection();
-            this.socket.SendMessage(new JoinMessage(this.roomCode, this.region));
-        };
-        this.socket.Connect();
-        // InterstellarPlugin.Logger.LogInfo($"[VC] WebSocket connecting...");
-    }
-
-    private void SetUpRTCConnection()
-    {
-        Dictionary<int, IOpusDecoder> decoders = new(64);
-        HashSet<int> decodeErrors = new();
-        // Diagnostic: track first audio frame reception for Android debugging
-        bool firstAudioFrame = true;
-        HashSet<int> newAudioClients = new();
-
-        void DecodeAndAddSample(int id, byte[] encodedAudio)
-        {
-            try
-            {
-                if (firstAudioFrame)
-                {
-                    firstAudioFrame = false;
-                    InterstellarPlugin.Logger.LogInfo($"[VC:AudioRx] First audio frame received (client={id}, bytes={encodedAudio.Length}).");
-                }
-                if (newAudioClients.Add(id))
-                {
-                    InterstellarPlugin.Logger.LogInfo($"[VC:AudioRx] New audio source: client {id}.");
-                }
-
-                if (!decoders.ContainsKey(id)) decoders[id] = AudioHelpers.GetOpusDecoder();
-
-                var decoder = decoders[id];
-                // Per-call buffer to prevent race condition when multiple audio frames
-                // arrive concurrently from the WebSocket callback thread.
-                float[] buffer = new float[2048];
-                int length = decoder.Decode(encodedAudio, buffer, buffer.Length);
-                context.OnAudioFrameReceived(id, buffer, length);
-            }
-            catch (Exception excep)
-            {
-                if (!decodeErrors.Contains(id))
-                {
-                    decodeErrors.Add(id);
-                    InterstellarPlugin.Logger.LogWarning("[VC] Opus decode error for client " + id + ": " + excep.Message);
-                }
-            }
-        }
-
-
-        TrySendProfile();
-        this.connection = new RTCPeerConnection(WebSocketHelpers.GetRTCConfiguration());
-        this.connection.OnAudioFrameReceived += frame =>
-        {
-            DecodeAndAddSample(frame.AudioFormat.FormatID, frame.EncodedAudio);
-        };
-        this.connection.onicecandidate += (candidate) =>
-        {
-            this.socket.SendMessage(new IceCandMessage(candidate.candidate, candidate.sdpMid, candidate.sdpMLineIndex, candidate.usernameFragment));
-        };
-    }
-
-    private IOpusEncoder encoder = AudioHelpers.GetOpusEncoder();
-    byte[] encodedBuffer = new byte[2048];
     public void SendAudio(float[] sampleBuffer, int sampleLength, double bufferMilliseconds)
     {
-        if(localAudioStream == null) return;
+        int encodedLen = encoder.Encode(sampleBuffer, sampleLength, encodedBuffer, encodedBuffer.Length);
+        if (encodedLen <= 2) return;
 
-        var durationRtpUnits = bufferMilliseconds.ToRtpUnits(AudioHelpers.ClockRate);
-        int encodedLength = encoder.Encode(sampleBuffer, sampleLength, encodedBuffer, encodedBuffer.Length);
-        // Skip frames ≤ 2 bytes: DTX comfort noise or near-silence — saves bandwidth
-        if (encodedLength <= 2) return;
-        localAudioStream?.SendAudio(durationRtpUnits, new ArraySegment<byte>(encodedBuffer, 0, encodedLength));
-    }
+        var opus = new byte[encodedLen];
+        System.Buffer.BlockCopy(encodedBuffer, 0, opus, 0, encodedLen);
 
-
-    int IMessageProcessor.Process(MessageTag tag, ReadOnlySpan<byte> bytes)
-    {
-        int read = -1;
-        switch (tag)
+        var frame = new AudioFrameMsg
         {
-            case MessageTag.ShareId:
-                OnReceiveMyClientId(ShareIdMessage.DeserializeWithoutTag(bytes, out read));
-                break;
-            case MessageTag.SdpOffer:
-                OnReceiveSdpOffer(SdpOfferMessage.DeserializeWithoutTag(bytes, out read));
-                break;
-            case MessageTag.AddIceCand:
-                OnReceiveIceCandMessage(IceCandMessage.DeserializeWithoutTag(bytes, out read));
-                break;
-            case MessageTag.ShareProfile:
-                var profile = ShareProfileMessage.DeserializeWithoutTag(bytes, out read);
-                context.OnClientProfileUpdated(profile.AudioId, profile.PlayerName, profile.PlayerId);
-                break;
-            case MessageTag.NoticeDisconnect:
-                var disconnect =NoticeDisconnectMessage.DeserializeWithoutTag(bytes, out read);
-                context.OnClientDisconnected(disconnect.ClientId);
-                break;
-            case MessageTag.ShareMuteStatus:
-                var muteStatus = ShareMuteStatusMessage.DeserializeWithoutTag(bytes, out read);
-                context.OnReceiveMuteStatus(muteStatus.ClientId, muteStatus.IsMute, muteStatus.IsImpostorRadio);
-                break;
-            case MessageTag.Custom:
-                CustomMessage.DeserializeForServerWithoutTag(bytes, out read);
-                context.OnCustomMessageReceived(bytes.ToArray());
-                break;
-            case MessageTag.HostSettings:
-                var hostSettings = HostSettingsMessage.DeserializeWithoutTag(bytes, out read);
-                context.OnHostSettingsReceived(hostSettings);
-                break;
-            case MessageTag.ServerInfo:
-                var serverInfo = ServerInfoMessage.DeserializeWithoutTag(bytes, out read);
-                context.OnServerInfoReceived(serverInfo);
-                break;
-        }
-        return read;
+            SourceId = (byte)(myClientId ?? 0),
+            SequenceNumber = audioSeq++,
+            DurationRtp = (ushort)(bufferMilliseconds * 48),
+            OpusData = opus
+        };
+
+        SendRaw(ProtoHelpers.WrapFrame(frame.Encode()));
     }
 
-    private void OnReceiveMyClientId(ShareIdMessage message)
+    public void SendCustomMessage(byte[] message)
+        => SendRaw(ProtoHelpers.WrapFrame(ProtoHelpers.EncodeCustomData(message)));
+
+    public void SendHostSettings(byte[] rawSettings)
+        => SendRaw(ProtoHelpers.WrapFrame(ProtoHelpers.EncodeHostSettings(rawSettings)));
+
+    public void Disconnect() => socket.Close();
+
+    private void SendRaw(byte[] data)
     {
-        int id = message.Id;
-        myClientId = id;
-        // Client ID received — keep one combined log line.
-        InterstellarPlugin.Logger.LogInfo($"[VC] Received client ID: {id}");
-        var localTrack = new MediaStreamTrack(AudioHelpers.GetOpusFormat(id), MediaStreamStatusEnum.SendOnly);
-        connection!.addTrack(localTrack);
-        localAudioStream = connection.AudioStreamList.Find(a => a.GetSendingFormat().ID == id);
+        if (socket.ReadyState != WebSocketSharp.WebSocketState.Open)
+            return;
+
+        // Encrypt if enabled
+        if (CryptoHelper.IsEnabled)
+            data = CryptoHelper.EncryptFrame(data);
+
+        socket.Send(data);
     }
 
-    MediaStreamTrack[] tracks = new MediaStreamTrack[AudioHelpers.MaxTracks]; 
-    private void OnReceiveSdpOffer(SdpOfferMessage message)
+    // ── Opus codec ────────────────────────────────────────────
+
+    private static IOpusEncoder CreateOpusEncoder()
     {
-        // SDP offer received — log once per renegotiation only if mask changed.
-        // InterstellarPlugin.Logger.LogInfo($"[VC] Received SDP offer (mask={message.Mask})");
-        // Update tracks (without removing)
-        long mask = message.Mask;
-        for (int i = 0; i < AudioHelpers.MaxTracks; i++)
-        {
-            if ((mask & (1L << i)) != 0)
-            {
-                if (tracks[i] != null) continue;
-
-                var format = AudioHelpers.GetOpusFormat(i);
-                var track = new MediaStreamTrack(format, MediaStreamStatusEnum.RecvOnly);
-                connection!.addTrack(track);
-                tracks[i] = track;
-            }
-        }
-
-        // Process SDP
-        connection!.setRemoteDescription(new RTCSessionDescriptionInit { sdp = message.Sdp, type = RTCSdpType.offer });
-        var answer = connection.createAnswer(null);
-        connection.setLocalDescription(answer).Wait();
-        socket.SendMessage(new SdpAnswerMessage(answer.sdp));
-        // InterstellarPlugin.Logger.LogInfo("[VC] SDP answer sent.");
+        var enc = OpusCodecFactory.CreateEncoder(48000, 1,
+            Concentus.Enums.OpusApplication.OPUS_APPLICATION_VOIP);
+        enc.Bitrate = 64000;
+        enc.UseVBR = true;
+        enc.UseDTX = false;
+        enc.UseInbandFEC = true;
+        enc.SignalType = Concentus.Enums.OpusSignal.OPUS_SIGNAL_VOICE;
+        return enc;
     }
 
-    private void OnReceiveIceCandMessage(IceCandMessage message)
-    {
-        InterstellarPlugin.Logger.LogInfo($"[VC] Received ICE candidate (mid={message.SdpMid})");
-        connection!.addIceCandidate(new RTCIceCandidateInit
-        {
-            candidate = message.Candidate,
-            sdpMid = message.SdpMid,
-            sdpMLineIndex = (ushort)message.SdpMLineIndex,
-            usernameFragment = message.UsernameFragment
-        });
-    }
-
-    internal void SendCustomMessage(byte[] message)
-    {
-        socket.SendMessage(new CustomMessage(message));
-    }
-
-    internal void SendZeroSizeMessage(MessageTag tag)
-    {
-        socket.SendMessage(tag);
-    }
-
-    internal void SendHostSettings(VoiceChatRoomSettings s)
-    {
-        var msg = new HostSettingsMessage(
-            s.MaxChatDistance, s.WallsBlockSound, s.OnlyHearInSight,
-            s.ImpostorHearGhosts, s.OnlyGhostsCanTalk, s.HearInVent,
-            s.HearVentPlayers, s.VentPrivateChat, s.CommsSabDisables, s.CameraCanHear,
-            s.ImpostorPrivateRadio, s.OnlyMeetingOrLobby);
-        socket.SendMessage(msg);
-    }
-
-    internal void Disconnect()
-    {
-        connection?.Close("Client left the game.");
-        socket.Close();
-    }
+    private static IOpusDecoder CreateOpusDecoder()
+        => OpusCodecFactory.CreateDecoder(48000, 1);
 }

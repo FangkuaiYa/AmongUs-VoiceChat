@@ -246,6 +246,43 @@
   "vc.volume.noPlayers": {
     "0": "No players in the room",
     "13": "房间里还没有其他玩家",
-    "14": "房間裡還沒有其他玩家"
-  }
+    "14": "房間裡還沒有其他玩家"  },
+  "vc.update.title": {
+    "0": "Interstellar Voice Chat Update",
+    "13": "星际语音聊天 更新",
+    "14": "星際語音聊天 更新"
+  },
+  "vc.update.desc": {
+    "0": "v{current} → v{latest}",
+    "13": "v{current} → v{latest}"
+  },
+  "vc.update.button": {
+    "0": "Update",
+    "13": "更新",
+    "14": "更新"
+  },
+  "vc.update.dismiss": {
+    "0": "Dismiss",
+    "13": "忽略",
+    "14": "忽略"
+  },
+  "vc.update.android": {
+    "0": "Android users: please update via your mod launcher.",
+    "13": "安卓用户请前往启动器更新。",
+    "14": "安卓用戶請前往啟動器更新。"
+  },
+  "vc.update.downloading": {
+    "0": "Downloading update...",
+    "13": "正在下载更新...",
+    "14": "正在下載更新..."
+  },
+  "vc.update.success": {
+    "0": "Update complete! Please restart the game.",
+    "13": "更新完成！请重启游戏。",
+    "14": "更新完成！請重啟遊戲。"
+  },
+  "vc.update.failed": {
+    "0": "Update failed. Please try again or update manually.",
+    "13": "更新失败，请重试或手动更新。",
+    "14": "更新失敗，請重試或手動更新。"  }
 }

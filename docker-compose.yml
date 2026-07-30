@@ -13,24 +13,17 @@ services:
     restart: unless-stopped
     network_mode: host  # Coturn needs to see real client IPs for relay
 
-  # ── Interstellar Voice Server ────────────────────────────────────
-  interstellar-server:
+  # ── Interstellar Voice Server (Go Edition) ───────────────────────
+  voice-server:
     build:
-      context: .
+      context: ./voice-server-go
       dockerfile: Dockerfile
-      target: runtime
     ports:
-      - "22021:22021"        # WebSocket for voice chat
+      - "22021:8000"         # Host:Container — WebSocket for voice chat
     environment:
-      - COTURN_URL=${COTURN_URL:-turn:your-server.com:3478}
-      - COTURN_USER=${COTURN_USER:-interstellar}
-      - COTURN_PASS=${COTURN_PASS:-changeme}
+      - OPTIMAL_PLAYERS=${OPTIMAL_PLAYERS:-0}
+      - TURN_URL=${TURN_URL:-}
+      - TURN_USER=${TURN_USER:-}
+      - TURN_PASS=${TURN_PASS:-}
     restart: unless-stopped
-    command:
-      - "0.0.0.0:22021"
-      - "--coturn"
-      - "${COTURN_URL:-turn:your-server.com:3478}"
-      - "--coturn-user"
-      - "${COTURN_USER:-interstellar}"
-      - "--coturn-pass"
-      - "${COTURN_PASS:-changeme}"
+    command: ["-addr", "0.0.0.0:8000"]

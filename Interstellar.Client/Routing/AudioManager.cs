@@ -1,5 +1,4 @@
 #pragma warning disable CS8618, CS8602, CS8603, CS8604
-using Interstellar.Messages;
 using Interstellar.NAudio.Provider;
 using Interstellar.Routing.Node;
 using NAudio.CoreAudioApi;
@@ -124,7 +123,7 @@ internal class AudioManager : IHasAudioPropertyNode
             }
             if (!router.IsGlobalRouter) foreach (var c in router.GetChildRouters()) GenerateInner(c, nodes[router.Id]?.Processor);
         }
-        BufferedSampleProvider sourceProvider = new(WaveFormat.CreateIeeeFloatWaveFormat(AudioHelpers.ClockRate, 1), bufferMaxLength) { DiscardOnBufferOverflow = true };
+        BufferedSampleProvider sourceProvider = new(WaveFormat.CreateIeeeFloatWaveFormat(AudioConstants.ClockRate, 1), bufferMaxLength) { DiscardOnBufferOverflow = true };
         GenerateInner(router, sourceProvider);
         return new(this.buffers, nodes, sourceProvider, groupId);
     }

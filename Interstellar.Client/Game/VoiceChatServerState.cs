@@ -1,5 +1,3 @@
-using Interstellar.Messages.Variation;
-
 namespace VoiceChatPlugin.VoiceChat;
 
 /// <summary>
@@ -18,11 +16,11 @@ public static class VoiceChatServerState
     public static bool IsAtCapacity =>
         OptimalPlayers > 0 && CurrentTotalPlayers >= OptimalPlayers;
 
-    public static void Update(ServerInfoMessage msg)
+    public static void Update(int optimalPlayers, int totalClients, string serverUrl)
     {
-        OptimalPlayers = msg.OptimalPlayers;
-        CurrentTotalPlayers = msg.CurrentTotalPlayers;
-        VoiceServerUrl = msg.VoiceServerUrl;
+        OptimalPlayers = optimalPlayers;
+        CurrentTotalPlayers = totalClients;
+        VoiceServerUrl = serverUrl;
         HasInfo = true;
     }
 

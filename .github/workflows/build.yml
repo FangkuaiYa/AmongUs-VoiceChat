@@ -5,88 +5,71 @@ on:
     paths:
       - '.github/workflows/build.yml'
       - 'Interstellar.Client/**'
-      - 'Interstellar.Messages/**'
-      - 'Interstellar.Server/**'
+      - 'voice-server-go/**'
       - 'Interstellar.sln'
       - 'nuget.config'
-      - 'Dockerfile'
       - 'docker-compose.yml'
   pull_request:
     paths:
       - '.github/workflows/build.yml'
       - 'Interstellar.Client/**'
-      - 'Interstellar.Messages/**'
-      - 'Interstellar.Server/**'
+      - 'voice-server-go/**'
       - 'Interstellar.sln'
       - 'nuget.config'
   workflow_dispatch:
 
 jobs:
-  # ── Server: cross-platform single-file publish ─────────────────────
+  # ── Go Voice Server: cross-platform build ─────────────────────────
   server:
     if: ${{ !contains(github.event.head_commit.message, 'Update README') }}
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        runtime:
-          - linux-x64
-          - linux-arm64
-          - win-x64
-          - osx-x64
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+        exclude:
+          - goos: darwin
+            goarch: arm64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache NuGet
-        uses: actions/cache@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
+          go-version: '1.26'
+          cache-dependency-path: voice-server-go/go.sum
 
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Restore
-        run: dotnet restore Interstellar.Server/Interstellar.Server.csproj -r ${{ matrix.runtime }}
-
-      - name: Publish single-file
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
         run: |
-          dotnet publish Interstellar.Server/Interstellar.Server.csproj \
-            -c Release \
-            -r ${{ matrix.runtime }} \
-            -o publish/${{ matrix.runtime }} \
-            --self-contained true \
-            -p:PublishSingleFile=true \
-            -p:UseAppHost=true \
-            -p:DebugType=none \
-            -p:DebugSymbols=false
+          cd voice-server-go
+          go build -buildvcs=false -ldflags="-s -w" -o voice-server-${{ matrix.goos }}-${{ matrix.goarch }} .
 
-      - name: Package (linux / osx)
-        if: startsWith(matrix.runtime, 'linux') || startsWith(matrix.runtime, 'osx')
-        shell: bash
+      - name: Package (linux / darwin)
+        if: matrix.goos == 'linux' || matrix.goos == 'darwin'
         run: |
-          cd publish/${{ matrix.runtime }}
-          chmod +x Interstellar.Server
-          tar czf ../Interstellar.Server-${{ matrix.runtime }}.tar.gz *
+          cd voice-server-go
+          chmod +x voice-server-${{ matrix.goos }}-${{ matrix.goarch }}
+          tar czf voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz voice-server-${{ matrix.goos }}-${{ matrix.goarch }}
 
       - name: Package (windows)
-        if: startsWith(matrix.runtime, 'win')
-        shell: bash
+        if: matrix.goos == 'windows'
         run: |
-          cd publish/${{ matrix.runtime }}
-          zip -r ../Interstellar.Server-${{ matrix.runtime }}.zip *
+          cd voice-server-go
+          mv voice-server-${{ matrix.goos }}-${{ matrix.goarch }} voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.exe
+          zip voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.zip voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Interstellar.Server-${{ matrix.runtime }}
-          path: publish/Interstellar.Server-${{ matrix.runtime }}.*
+          name: voice-server-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: voice-server-go/voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.*
 
   # ── Client: BepInEx plugin (Windows, net6.0) ──────────────────────
   client:
@@ -111,10 +94,7 @@ jobs:
           dotnet-version: '6.0.x'
 
       - name: Restore
-        run: dotnet restore Interstellar.sln
-
-      - name: Build Messages
-        run: dotnet build Interstellar.Messages/Interstellar.Messages.csproj -c Release
+        run: dotnet restore Interstellar.Client/Interstellar.Client.csproj
 
       - name: Build Client (pass 1 — collect deps)
         run: dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release
@@ -127,7 +107,6 @@ jobs:
         run: |
           mkdir -p publish/Plugin
           cp Interstellar.Client/bin/Release/net6.0/Interstellar.Client.dll publish/Plugin/
-          echo "Plugin built."
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -135,21 +114,52 @@ jobs:
           name: Interstellar.Client
           path: publish/Plugin/
 
+  # ── Docker image ──────────────────────────────────────────────────
+  docker:
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    needs: [server]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./voice-server-go
+          push: false
+          tags: interstellar-voice-server:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # ── Release: on tag, create GitHub Release ────────────────────────
   release:
-    if: ${{ startsWith(github.ref, 'refs/tags/') && !contains(github.event.head_commit.message, 'Update README') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
     needs: [server, client]
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download all artifacts
+      - name: Download server artifacts
         uses: actions/download-artifact@v4
+        with:
+          pattern: voice-server-*
+          path: artifacts/
+
+      - name: Download client artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Interstellar.Client
+          path: artifacts/Plugin/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           files: |
-            Interstellar.Server-*/Interstellar.Server-*.tar.gz
-            Interstellar.Server-*/Interstellar.Server-*.zip
-            Interstellar.Client/**/*
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+            artifacts/Plugin/**/*
