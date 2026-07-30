@@ -3,7 +3,6 @@ package protocol
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -39,14 +38,11 @@ func EncodeJoinRequest(w io.Writer, req JoinRequest) error {
 }
 
 func DecodeJoinRequest(data []byte) (JoinRequest, error) {
-	if len(data) < 1+2 {
+	// type byte already consumed by dispatchMessage
+	if len(data) < 2 {
 		return JoinRequest{}, ErrInvalidLength
 	}
 	pos := 0
-	if data[pos] != TypeJoinRequest {
-		return JoinRequest{}, fmt.Errorf("unexpected type: %d", data[pos])
-	}
-	pos++
 	roomLen := int(binary.BigEndian.Uint16(data[pos:]))
 	pos += 2
 	if pos+roomLen > len(data) {
@@ -147,10 +143,11 @@ func EncodeProfile(w io.Writer, m ProfileMsg) error {
 }
 
 func DecodeProfile(data []byte) (ProfileMsg, error) {
-	if len(data) < 4 {
+	// type byte already consumed by dispatchMessage
+	if len(data) < 2+1 {
 		return ProfileMsg{}, ErrInvalidLength
 	}
-	pos := 1 // skip type
+	pos := 0
 	nameLen := int(binary.BigEndian.Uint16(data[pos:]))
 	pos += 2
 	if pos+nameLen+1 > len(data) {
@@ -285,16 +282,12 @@ func EncodeAudioFrame(w io.Writer, frame AudioFrame) error {
 	return err
 }
 
-// DecodeAudioFrame decodes a single audio frame. Returns the number of bytes consumed.
+// DecodeAudioFrame decodes an audio frame. Type byte already consumed.
 func DecodeAudioFrame(data []byte) (AudioFrame, int, error) {
-	if len(data) < 8 {
+	if len(data) < 7 {
 		return AudioFrame{}, 0, ErrInvalidLength
 	}
 	pos := 0
-	if data[pos] != TypeAudioData {
-		return AudioFrame{}, 0, fmt.Errorf("expected audio type, got %d", data[pos])
-	}
-	pos++
 	srcID := data[pos]
 	pos++
 	seq := binary.BigEndian.Uint32(data[pos:])
@@ -530,8 +523,8 @@ func (fr *FrameReader) readAudioData(start int) []byte {
 		return nil
 	}
 	// Already consumed type byte; now src_id(1) + seq(4) + dur(2) + opus...
-	fr.pos += 1                  // src_id
-	fr.pos += 4                  // seq
+	fr.pos += 1 // src_id
+	fr.pos += 4 // seq
 	dur := binary.BigEndian.Uint16(fr.data[fr.pos-2:])
 	_ = dur
 	// Opus data is the rest of the frame (or until next message)

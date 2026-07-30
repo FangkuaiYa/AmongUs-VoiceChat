@@ -53,7 +53,7 @@ type Client struct {
 	audioTx      *audio.Throughput
 	audioRx      *audio.Throughput
 	audioQueue   chan *protocol.AudioFrame
-	jitterBuffer *audio.JitterBuffer   // per-source reordering
+	jitterBuffer *audio.JitterBuffer // per-source reordering
 	jitterMu     sync.Mutex
 
 	// Rate limiting
@@ -73,15 +73,15 @@ type Client struct {
 // newClient creates a new Client.
 func newClient(conn *websocket.Conn, srv *Server) *Client {
 	c := &Client{
-		conn:        conn,
-		server:      srv,
-		audioTx:     &audio.Throughput{},
-		audioRx:     &audio.Throughput{},
-		audioQueue:  make(chan *protocol.AudioFrame, maxAudioQueue),
+		conn:         conn,
+		server:       srv,
+		audioTx:      &audio.Throughput{},
+		audioRx:      &audio.Throughput{},
+		audioQueue:   make(chan *protocol.AudioFrame, maxAudioQueue),
 		jitterBuffer: audio.NewJitterBuffer(5), // 5-frame jitter buffer (~100ms)
-		writeBuf:    protocol.NewFrameWriter(4096),
-		joinedAt:    time.Now(),
-		logger:      log.Default(),
+		writeBuf:     protocol.NewFrameWriter(4096),
+		joinedAt:     time.Now(),
+		logger:       log.Default(),
 	}
 	if srv.config.MaxBandwidthPerClient > 0 {
 		c.rateLimiter = audio.NewRateLimiter(
@@ -320,32 +320,10 @@ func (c *Client) handleMessage(data []byte) {
 		return
 	}
 
-	// Check for legacy packed format (first byte is count)
-	// New format: 2-byte big-endian length prefix
-	// Legacy format: first byte is message count (1-63)
-	firstByte := data[0]
-	if firstByte >= 1 && firstByte <= 63 && len(data) >= 2 {
-		// Legacy format — unpack multiple messages
-		count := int(firstByte)
-		pos := 1
-		for i := 0; i < count && pos < len(data); i++ {
-			if pos >= len(data) {
-				break
-			}
-			msgType := data[pos]
-			pos++
-			consumed := c.dispatchMessage(msgType, data[pos:])
-			if consumed < 0 {
-				break
-			}
-			pos += consumed
-		}
-		return
-	}
-
 	// New format — length-prefixed frame
 	reader, err := protocol.NewFrameReader(data)
 	if err != nil {
+		c.logger.Printf("client %d: frame parse error: %v (first bytes: %x)", c.clientID, err, data[:min(4, len(data))])
 		return
 	}
 	for {
@@ -488,7 +466,8 @@ func (c *Client) relayOrderedAudio(tagged []byte) {
 	if len(tagged) < 8 {
 		return
 	}
-	frame, _, err := protocol.DecodeAudioFrame(tagged)
+	// Skip type byte (already processed by dispatchMessage)
+	frame, _, err := protocol.DecodeAudioFrame(tagged[1:])
 	if err != nil {
 		return
 	}

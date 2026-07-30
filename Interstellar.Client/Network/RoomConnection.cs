@@ -257,11 +257,18 @@ internal class RoomConnection
         if (socket.ReadyState != WebSocketSharp.WebSocketState.Open)
             return;
 
-        // Encrypt if enabled
         if (CryptoHelper.IsEnabled)
             data = CryptoHelper.EncryptFrame(data);
 
-        socket.Send(data);
+        try
+        {
+            socket.Send(data);
+        }
+        catch
+        {
+            // Connection lost — close to stop further attempts
+            try { socket.Close(); } catch { }
+        }
     }
 
     // ── Opus codec ────────────────────────────────────────────
