@@ -33,8 +33,8 @@ public static class VoiceButtons
     static GameObject? voiceBgObject;
     static SpriteRenderer? voiceBgRenderer;
     static GameObject? VoiceModButtons;
-    static PassiveButton toggleSettingsButton;
-    static GameObject toggleSettingsButtonObject;
+    static PassiveButton? toggleSettingsButton;
+    static GameObject? toggleSettingsButtonObject;
     private static bool _micMuted, _speakerMuted;
     private static VoiceChannel _channel = VoiceChannel.All;
     public static bool IsSpeakerMuted => _speakerMuted;
@@ -60,8 +60,8 @@ public static class VoiceButtons
             toggleSettingsButton.OnClick.RemoveAllListeners();
             toggleSettingsButton.OnClick.AddListener((Action)(() => _tabVisible = !_tabVisible));
         }
-        toggleSettingsButtonObject.SetActive(true);
-        toggleSettingsButtonObject.transform.localPosition = AmongUsClient.Instance.GameState == AmongUsClient.GameStates.Joined ?(__instance.SettingsButton?.transform?.localPosition ?? new Vector3()) + new Vector3(-1.45f, -0.82f, -200f) : __instance.MapButton.transform.localPosition + new Vector3(0, -1.65f, -500f);
+        toggleSettingsButtonObject!.SetActive(true);
+        toggleSettingsButtonObject!.transform.localPosition = AmongUsClient.Instance.GameState == AmongUsClient.GameStates.Joined ?(__instance.SettingsButton?.transform?.localPosition ?? new Vector3()) + new Vector3(-1.45f, -0.82f, -200f) : __instance.MapButton.transform.localPosition + new Vector3(0, -1.65f, -500f);
 
 
         if (Input.GetKeyDown(KeyCode.H))
@@ -74,8 +74,8 @@ public static class VoiceButtons
             VoiceModButtons = new GameObject("VoiceModButtons");
             VoiceModButtons.transform.SetParent(__instance.transform, false);
         }
-        bool settingsActive = __instance.SettingsButton.gameObject.active;
-        VoiceModButtons.SetActive(_tabVisible && settingsActive);
+        bool settingsActive = __instance.SettingsButton!.gameObject.active;
+        VoiceModButtons!.SetActive(_tabVisible && settingsActive);
 
         if (!voiceBgObject)
         {
@@ -87,8 +87,8 @@ public static class VoiceButtons
             voiceBgObject.layer = __instance.SettingsButton.gameObject.layer;
             voiceBgObject.transform.SetSiblingIndex(1);
         }
-        voiceBgObject.SetActive(settingsActive);
-        voiceBgObject.transform.localPosition = __instance.SettingsButton.transform.localPosition + new Vector3(-0.6f, 0.007f, -500f);
+        voiceBgObject!.SetActive(settingsActive);
+        voiceBgObject!.transform.localPosition = __instance.SettingsButton.transform.localPosition + new Vector3(-0.6f, 0.007f, -500f);
 
         // ── Mic button (Copy icon) ──
         if (!toggleMicButton || !toggleMicButtonObject)
@@ -108,8 +108,8 @@ public static class VoiceButtons
             toggleMicButton.OnClick.AddListener((Action)CycleMic);
             toggleMicButtonObject.transform.SetSiblingIndex(2);
         }
-        toggleMicButtonObject.SetActive(settingsActive);
-        toggleMicButtonObject.transform.localPosition = __instance.SettingsButton.transform.localPosition + new Vector3(-1.2f, 0.03f, -500f);
+        toggleMicButtonObject!.SetActive(settingsActive);
+        toggleMicButtonObject!.transform.localPosition = __instance.SettingsButton.transform.localPosition + new Vector3(-1.2f, 0.03f, -500f);
 
         // ── Speaker button (Paste icon) ──
         if (!toggleSpkButton || !toggleSpkButtonObject)
@@ -129,8 +129,8 @@ public static class VoiceButtons
             toggleSpkButton.OnClick.AddListener((Action)ToggleSpeaker);
             toggleSpkButtonObject.transform.SetSiblingIndex(2);
         }
-        toggleSpkButtonObject.SetActive(settingsActive);
-        toggleSpkButtonObject.transform.localPosition = __instance.SettingsButton.transform.localPosition + new Vector3(-0.6f, 0.03f, -500f);
+        toggleSpkButtonObject!.SetActive(settingsActive);
+        toggleSpkButtonObject!.transform.localPosition = __instance.SettingsButton.transform.localPosition + new Vector3(-0.6f, 0.03f, -500f);
 
         // ── Settings button ──
         if (!toggleSetButton || !toggleSetButtonObject)
@@ -154,8 +154,8 @@ public static class VoiceButtons
             }));
             toggleSetButtonObject.transform.SetSiblingIndex(2);
         }
-        toggleSetButtonObject.SetActive(settingsActive);
-        toggleSetButtonObject.transform.localPosition = __instance.SettingsButton.transform.localPosition + new Vector3(0f, 0.03f, -500f);
+        toggleSetButtonObject!.SetActive(settingsActive);
+        toggleSetButtonObject!.transform.localPosition = __instance.SettingsButton.transform.localPosition + new Vector3(0f, 0.03f, -500f);
 
         RefreshVisuals();
     }

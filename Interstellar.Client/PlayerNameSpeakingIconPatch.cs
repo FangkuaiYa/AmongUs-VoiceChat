@@ -73,10 +73,11 @@ public static class PlayerNameSpeakingIconPatch
             processedIds.Add(id);
             if (pc.cosmetics?.nameText == null) continue;
 
-            // Hide icons when player name/body is hidden
+            // Hide icons when player name/body is hidden or the name is faded out
             bool nameHidden = !pc.cosmetics.nameText.gameObject.activeInHierarchy;
+            float nameAlpha = pc.cosmetics.nameText.alpha;
             float bodyAlpha = pc.cosmetics.currentBodySprite?.BodySprite?.color.a ?? 1f;
-            if (nameHidden || pc.inVent || bodyAlpha < 0.01f)
+            if (nameHidden || pc.inVent || bodyAlpha < 0.01f || nameAlpha < 0.01f)
             {
                 RemoveSpeakingIcon(id);
                 RemoveNoConnectIcon(id);
@@ -183,12 +184,15 @@ public static class PlayerNameSpeakingIconPatch
 
     static void CreateIcon(PlayerControl pc, byte playerId, string name, Sprite sprite, Dictionary<byte, GameObject> cache)
     {
+        var nameText = pc.cosmetics.nameText;
         var go = new GameObject(name);
-        go.transform.SetParent(pc.cosmetics.nameText.transform.parent, false);
+        go.transform.SetParent(nameText.transform.parent, false);
         go.layer = pc.gameObject.layer;
         var sr = go.AddComponent<SpriteRenderer>();
         sr.sprite = sprite;
-        sr.sortingOrder = 32767;
+        // Same sorting layer as the name, one order above it.
+        sr.sortingLayerID = nameText.sortingLayerID;
+        sr.sortingOrder = nameText.sortingOrder + 1;
         UpdateIconPosition(go, pc);
         cache[playerId] = go;
     }
@@ -200,6 +204,14 @@ public static class PlayerNameSpeakingIconPatch
         float offsetX = nameText.bounds.size.x / 2f + 0.4f;
         go.transform.localPosition = new Vector3(-offsetX, 0f, -1f);
         go.transform.localScale = new Vector3(0.5f, 0.5f, 1f);
+
+        var sr = go.GetComponent<SpriteRenderer>();
+        if (sr == null) return;
+        // Keep the icon on the name's sorting layer, one order above it.
+        sr.sortingLayerID = nameText.sortingLayerID;
+        sr.sortingOrder = nameText.sortingOrder + 1;
+        // Follow the name's fade (e.g. behind walls) with a slight transparency.
+        sr.color = new Color(1f, 1f, 1f, Mathf.Clamp01(nameText.alpha * 0.7f));
     }
 
     static void ClearAllIcons()

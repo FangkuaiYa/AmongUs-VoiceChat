@@ -79,8 +79,6 @@ public class VoiceRoom
         _levelMeter = new LevelMeterRouter();
 
         FilterRouter ghostLowpass = FilterRouter.CreateLowPassFilter(1900f, 2f);
-        ReverbRouter ghostReverb1 = new(53, 0.7f, 0.2f) { IsGlobalRouter = true };
-        ReverbRouter ghostReverb2 = new(173, 0.4f, 0.6f) { IsGlobalRouter = true };
         FilterRouter radioHighpass = FilterRouter.CreateHighPassFilter(650f, 3.2f);
         FilterRouter radioLowpass = FilterRouter.CreateLowPassFilter(800f, 2.1f);
         DistortionFilter radioDistort = new() { IsGlobalRouter = true, DefaultThreshold = 0.55f };
@@ -93,9 +91,7 @@ public class VoiceRoom
         _normalVolume.Connect(masterRouter);
         _imager.Connect(ghostLowpass);
         ghostLowpass.Connect(_ghostVolume);
-        _ghostVolume.Connect(ghostReverb1);
-        ghostReverb1.Connect(ghostReverb2);
-        ghostReverb2.Connect(masterRouter);
+        _ghostVolume.Connect(masterRouter);
         _clientVolume.Connect(radioHighpass);
         radioHighpass.Connect(radioLowpass);
         radioLowpass.Connect(_radioVolume);
@@ -269,6 +265,14 @@ public class VoiceRoom
         Vector2? listenerPos = localPlayer ? (Vector2)localPlayer.transform.position : null;
         bool localInVent = localPlayer != null && localPlayer.inVent;
 
+        // Hear through cameras: while watching security cameras, use the
+        // camera's position for distance so nearby players stay audible.
+        if (listenerPos.HasValue && VoiceConfig.SyncedRoomSettings.CameraCanHear)
+        {
+            var camPos = TryGetCameraListenerPosition();
+            if (camPos.HasValue) listenerPos = camPos;
+        }
+
         // Android first-join watchdog: if no incoming audio is received
         // within ~3s of the room going active, fully restart the connection.
         // Flag is static so it survives the restart and only fires once.
@@ -334,6 +338,48 @@ public class VoiceRoom
             if (hud != null && hud.IsActive) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Returns the position of the security camera the local player is
+    /// currently viewing, or null when not on cameras. Mirrors BetterCrewLink's
+    /// hearThroughCameras: Polus/Airship use the selected camera, Skeld uses
+    /// the nearest camera while the surveillance minigame is open.
+    /// Uses only public game fields — no reflection.
+    /// </summary>
+    private static Vector2? TryGetCameraListenerPosition()
+    {
+        var mg = Minigame.Instance;
+        if (mg == null) return null;
+
+        // Polus / Airship: PlanetSurveillanceMinigame.Camera (public) is the
+        // render camera positioned at the currently selected surveillance camera.
+        var planet = mg.TryCast<PlanetSurveillanceMinigame>();
+        if (planet != null && planet.Camera != null)
+            return (Vector2)planet.Camera.transform.position;
+
+        // Skeld: the minigame instance existing means the player is viewing
+        // security. The player hears anyone near a camera, so use the nearest
+        // SurvCamera (ShipStatus.AllCameras is public) as the listener proxy.
+        var surv = mg.TryCast<SurveillanceMinigame>();
+        if (surv != null && ShipStatus.Instance != null && PlayerControl.LocalPlayer != null)
+        {
+            var cams = ShipStatus.Instance.AllCameras;
+            if (cams != null)
+            {
+                var pos = (Vector2)PlayerControl.LocalPlayer.transform.position;
+                SurvCamera? best = null;
+                float bestD = float.MaxValue;
+                foreach (var cam in cams)
+                {
+                    if (cam == null) continue;
+                    float d = Vector2.Distance((Vector2)cam.transform.position, pos);
+                    if (d < bestD) { bestD = d; best = cam; }
+                }
+                if (best != null) return (Vector2)best.transform.position;
+            }
+        }
+        return null;
     }
 
     public void Rejoin()

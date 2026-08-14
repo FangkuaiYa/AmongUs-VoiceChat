@@ -36,6 +36,8 @@ public class VCRoom : IConnectionContext, IHasAudioPropertyNode, IMicrophoneCont
     private readonly OnDisconnect? onDisconnect;
     private readonly OnUpdateMuteStatus? onUpdateMuteStatus;
     private bool loopBack = false;
+    private readonly AudioPreprocessor _micPre = new();
+    private float _farEndLevel;
 
     public delegate void OnConnectClient(int clientId, AudioRoutingInstance routing, bool isLocalClient);
     public delegate void OnUpdateProfile(int clientId, byte playerId, string playerName);
@@ -99,6 +101,11 @@ public class VCRoom : IConnectionContext, IHasAudioPropertyNode, IMicrophoneCont
     void IMicrophoneContext.SendAudio(float[] samples, int samplesLength, double samplesMilliseconds, float coeff)
     {
         for(int i = 0; i < samplesLength; i++) samples[i] *= coeff;
+
+        // Noise suppression / echo cancellation / high-pass cleanup.
+        _micPre.Process(samples, samplesLength,
+            VoiceConfig.NoiseSuppression, VoiceConfig.EchoCancellation, _farEndLevel);
+
         // Track local mic peak for self-speaking indicator (always, even without loopback)
         float max = 0f;
         for (int i = 0; i < samplesLength; i++)
@@ -107,7 +114,8 @@ public class VCRoom : IConnectionContext, IHasAudioPropertyNode, IMicrophoneCont
             if (abs > max) max = abs;
         }
         _localLevel = max;
-        if (!Mute)
+        bool shouldSend = !VoiceConfig.VADEnabled || _micPre.IsSpeech;
+        if (!Mute && shouldSend)
         {
             if (!_firstAudioSent)
             {
@@ -178,6 +186,16 @@ public class VCRoom : IConnectionContext, IHasAudioPropertyNode, IMicrophoneCont
 
     void IConnectionContext.OnAudioFrameReceived(int clientId, float[] samples, int length)
     {
+        // Track far-end playback level for echo suppression.
+        float m = 0f;
+        for (int i = 0; i < length; i++)
+        {
+            float a = samples[i] < 0f ? -samples[i] : samples[i];
+            if (a > m) m = a;
+        }
+        float k = m > _farEndLevel ? 0.3f : 0.05f;
+        _farEndLevel += (m - _farEndLevel) * k;
+
         var instance = GetOrCreateAudioInstance(clientId, false);
         instance.AddSamples(samples, 0, length);
     }

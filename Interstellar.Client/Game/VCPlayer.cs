@@ -201,7 +201,12 @@ public class VCPlayer
         if (commsSabActive && s.CommsSabDisables && !localImp && !localDead) { MuteAll(); return; }
 
         float dist = Vector2.Distance(targetPos, listenerPos.Value);
-        float volume = VoiceRoom.GetVolume(dist, s.MaxChatDistance);
+        float maxDist = s.MaxChatDistance;
+        // OnlyHearInSight (visionHearing): non-impostors hear only as far as
+        // their current light radius. Mirrors BetterCrewLink's visionHearing.
+        if (s.OnlyHearInSight && !localImp && ShipStatus.Instance != null && PlayerControl.LocalPlayer != null && PlayerControl.LocalPlayer.Data != null)
+            maxDist = Mathf.Max(ShipStatus.Instance.CalculateLightRadius(PlayerControl.LocalPlayer.Data) + 0.5f, 1f);
+        float volume = VoiceRoom.GetVolume(dist, maxDist);
         float pan = VoiceRoom.GetPan(listenerPos.Value.x, targetPos.x);
 
         if (localDead)

@@ -213,7 +213,6 @@ public class VoiceSettingsWindow : MonoBehaviour
 
         var serverNames = ServerList.GetServerNames();
         int currentIdx = VoiceConfig.SelectedServerIndex;
-        bool isBeijing = VoiceConfig.IsBeijingServer;
 
         GUILayout.BeginVertical(_boxStyle);
         {
@@ -271,26 +270,6 @@ public class VoiceSettingsWindow : MonoBehaviour
                 if (GUILayout.Button(Get("vc.settings.reconnect", "Reconnect"), GUILayout.Width(100f)))
                     VoiceRoom.RestartForCurrentGame();
                 GUILayout.EndHorizontal();
-            }
-
-            // NAT Fix toggle (disabled for Beijing)
-            bool natFixVal = VoiceConfig.NatFixEnabled;
-            GUI.enabled = !isBeijing;
-            bool newNatFix = GUILayout.Toggle(natFixVal,
-                isBeijing ? Get("vc.settings.natFixOff", "NAT Fix (unavailable on Beijing server)") : Get("vc.settings.natFixOn", "NAT Fix (force relay)"));
-            if (newNatFix != natFixVal)
-                VoiceConfig.NatFixEnabled = newNatFix;
-            GUI.enabled = true;
-
-            if (isBeijing)
-            {
-                var warnStyle = new GUIStyle(GUI.skin.label)
-                {
-                    normal = new GUIStyleState { textColor = new Color(1f, 0.65f, 0.2f) },
-                    fontSize = 11,
-                    wordWrap = true
-                };
-                GUILayout.Label(Get("vc.settings.natFixWarn", "Beijing server does not support NAT Fix."), warnStyle);
             }
         }
         GUILayout.EndVertical();
@@ -366,6 +345,10 @@ public class VoiceSettingsWindow : MonoBehaviour
         RenderHostToggle(Get("vc.settings.wallsBlockSound", "Walls Block Sound"),
             () => VoiceConfig.SyncedRoomSettings.WallsBlockSound,
             v => { VoiceConfig.SetHostWallsBlockSound(v); RoomChanged(); }, isHost);
+
+        RenderHostToggle(Get("vc.settings.onlyHearInSight", "Only Hear In Sight"),
+            () => VoiceConfig.SyncedRoomSettings.OnlyHearInSight,
+            v => { VoiceConfig.SetHostOnlyHearInSight(v); RoomChanged(); }, isHost);
 
         RenderHostToggle(Get("vc.settings.impostorHearGhosts", "Impostor Hear Ghosts"),
             () => VoiceConfig.SyncedRoomSettings.ImpostorHearGhosts,
@@ -534,7 +517,7 @@ public class VoiceSettingsWindow : MonoBehaviour
         var template = AccountManager.Instance?.transform.Find("PremissionRequestWindow");
         if (template == null) return;
 
-        var old = AccountManager.Instance.transform.Find("VC_TextInput");
+        var old = AccountManager.Instance!.transform.Find("VC_TextInput");
         if (old != null) Object.Destroy(old.gameObject);
 
         var popup = Object.Instantiate(template.gameObject, AccountManager.Instance.transform);

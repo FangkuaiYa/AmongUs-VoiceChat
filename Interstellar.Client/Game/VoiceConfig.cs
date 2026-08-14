@@ -72,13 +72,6 @@ public static class VoiceConfig
         set { if (_echoCancellation != null) _echoCancellation.Value = value; }
     }
 
-    // ── NAT Fix (disabled when using Beijing server) ───────
-    public static bool NatFixEnabled
-    {
-        get => !IsBeijingServer && (_natFix?.Value ?? false);
-        set { if (_natFix != null) _natFix.Value = value; }
-    }
-
     // ── VAD ────────────────────────────────────────────────
     public static bool VADEnabled
     {
@@ -96,6 +89,11 @@ public static class VoiceConfig
     {
         get => _hostWallsBlock?.Value ?? true;
         set { if (_hostWallsBlock != null) _hostWallsBlock.Value = value; }
+    }
+    public static bool HostOnlyHearInSight
+    {
+        get => _hostOnlyHearInSight?.Value ?? false;
+        set { if (_hostOnlyHearInSight != null) _hostOnlyHearInSight.Value = value; }
     }
     public static bool HostImpostorHearGhosts
     {
@@ -171,9 +169,9 @@ public static class VoiceConfig
     private static ConfigEntry<string>? _mic, _speaker;
     private static ConfigEntry<float>? _masterVol, _micVol;
     private static ConfigEntry<bool>? _noiseSuppression, _echoCancellation;
-    private static ConfigEntry<bool>? _natFix, _vadEnabled;
+    private static ConfigEntry<bool>? _vadEnabled;
     private static ConfigEntry<float>? _hostMaxDist;
-    private static ConfigEntry<bool>? _hostWallsBlock, _hostImpGhost;
+    private static ConfigEntry<bool>? _hostWallsBlock, _hostOnlyHearInSight, _hostImpGhost;
     private static ConfigEntry<bool>? _hostOnlyGhost, _hostHearVent, _hostHearVentPlayers, _hostVentChat;
     private static ConfigEntry<bool>? _hostCommSab, _hostCamera, _hostImpRadio, _hostMeetingOnly;
     private static ConfigEntry<bool>? _publicLobby;
@@ -233,12 +231,12 @@ public static class VoiceConfig
 
         _noiseSuppression = cfg.Bind("VoiceChat", "NoiseSuppression", true);
         _echoCancellation = cfg.Bind("VoiceChat", "EchoCancellation", true);
-        _natFix = cfg.Bind("VoiceChat", "NATFix", false);
         _vadEnabled = cfg.Bind("VoiceChat", "VADEnabled", true);
 
         _hostMaxDist = cfg.Bind("VoiceChat.Room", "MaxChatDistance", 6f,
             new ConfigDescription("Max hearing distance", new AcceptableValueRange<float>(1.5f, 20f)));
         _hostWallsBlock = cfg.Bind("VoiceChat.Room", "WallsBlockSound", true);
+        _hostOnlyHearInSight = cfg.Bind("VoiceChat.Room", "OnlyHearInSight", false);
         _hostImpGhost = cfg.Bind("VoiceChat.Room", "ImpostorHearGhosts", false);
         _hostOnlyGhost = cfg.Bind("VoiceChat.Room", "OnlyGhostsCanTalk", false);
         _hostHearVent = cfg.Bind("VoiceChat.Room", "HearInVent", true);
@@ -263,6 +261,7 @@ public static class VoiceConfig
 
     public static void SetHostMaxChatDistance(float v) => HostMaxChatDistance = v;
     public static void SetHostWallsBlockSound(bool v) => HostWallsBlockSound = v;
+    public static void SetHostOnlyHearInSight(bool v) => HostOnlyHearInSight = v;
     public static void SetHostImpostorHearGhosts(bool v) => HostImpostorHearGhosts = v;
     public static void SetHostOnlyGhostsCanTalk(bool v) => HostOnlyGhostsCanTalk = v;
     public static void SetHostHearInVent(bool v) => HostHearInVent = v;
@@ -278,6 +277,7 @@ public static class VoiceConfig
         var s = SyncedRoomSettings;
         s.MaxChatDistance = HostMaxChatDistance;
         s.WallsBlockSound = HostWallsBlockSound;
+        s.OnlyHearInSight = HostOnlyHearInSight;
         s.ImpostorHearGhosts = HostImpostorHearGhosts;
         s.OnlyGhostsCanTalk = HostOnlyGhostsCanTalk;
         s.HearInVent = HostHearInVent;
