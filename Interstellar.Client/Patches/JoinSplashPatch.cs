@@ -92,11 +92,6 @@ public static class JoinSplashScreen
         var elapsed = 0f;
         while (elapsed < fadeInDuration)
         {
-            // The overlay/text are parented to the camera. If a scene change happens
-            // mid-fade (disconnect, kick, game end, etc.) Unity destroys them along
-            // with the old camera, but this coroutine keeps running — writing to a
-            // destroyed SpriteRenderer/TMP throws a NullReferenceException deep in
-            // IL2CPP. Bail out cleanly instead of touching destroyed objects.
             if (!bgSr || !textTmp)
             {
                 _isShowing = false;

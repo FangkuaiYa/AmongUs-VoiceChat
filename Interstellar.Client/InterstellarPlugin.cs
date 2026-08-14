@@ -13,7 +13,7 @@ namespace Interstellar;
 public class InterstellarPlugin : BasePlugin
 {
     public const string Id = "com.interstellar.voice";
-    public const string PluginVersion = "2.2.0";
+    public const string PluginVersion = "3.0.0";
     public static ManualLogSource Logger { get; private set; } = null!;
 
     private const string ResPrefix = "Lib.";
