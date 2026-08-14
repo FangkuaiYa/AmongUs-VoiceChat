@@ -1,9 +1,9 @@
 using HarmonyLib;
 using System.Globalization;
 using UnityEngine;
-using VoiceChatPlugin.VoiceChat;
+using Interstellar.Voice;
 
-namespace VoiceChatPlugin;
+namespace Interstellar;
 
 /// <summary>
 /// Adds a "Buy Me a Coffee" button on the main menu,
@@ -31,7 +31,7 @@ public static class MainMenuCoffeeButtonPatch
     public static void Postfix(MainMenuManager __instance)
     {
         if (_coffeeSprite == null)
-            _coffeeSprite = InterstellarHudState.LoadSpriteFromResources("VoiceChatPlugin.Resources.CoffeeButton.png", 100f);
+            _coffeeSprite = InterstellarHudState.LoadSpriteFromResources("Interstellar.Resources.CoffeeButton.png", 100f);
         if (_coffeeSprite == null) return;
 
         var go = new GameObject("CoffeeButton");

@@ -1,6 +1,6 @@
-﻿using NAudio.Wave;
+using NAudio.Wave;
 
-namespace Interstellar.NAudio.Provider;
+namespace Interstellar.Audio.Provider;
 
 /// <summary>
 /// SampleProvider that adds a reverb effect.

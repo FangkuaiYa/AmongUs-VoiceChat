@@ -1,4 +1,4 @@
-﻿using NAudio.Wave;
+using NAudio.Wave;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Interstellar.NAudio.Provider;
+namespace Interstellar.Audio.Provider;
 
 internal class StereoSampleProvider : ISampleProvider
 {

@@ -7,7 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Interstellar.NAudio.Provider;
+namespace Interstellar.Audio.Provider;
 
 /// <summary>
 /// A BufferedProvider that accepts sample writes.

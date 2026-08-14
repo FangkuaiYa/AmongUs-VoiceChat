@@ -18,9 +18,9 @@ using Twitch;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Networking;
-using VoiceChatPlugin.VoiceChat;
+using Interstellar.Voice;
 
-namespace VoiceChatPlugin;
+namespace Interstellar;
 
 [HarmonyPatch(typeof(MainMenuManager), nameof(MainMenuManager.Start))]
 internal static class UpdateChecker

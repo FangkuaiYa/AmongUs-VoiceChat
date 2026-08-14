@@ -1,288 +1,682 @@
-{
+﻿{
+  "vc.settings.server": {
+    "0": "Server",
+    "4": "서버",
+    "11": "サーバー",
+    "13": "服务器",
+    "14": "伺服器",
+    "9": "Server",
+    "18": "الخادم"
+  },
+  "vc.settings.refresh": {
+    "0": "Refresh",
+    "4": "새로고침",
+    "11": "更新",
+    "13": "刷新",
+    "14": "刷新",
+    "9": "Aktualisieren",
+    "18": "تحديث"
+  },
+  "vc.settings.url": {
+    "0": "URL",
+    "4": "URL",
+    "11": "URL",
+    "13": "地址",
+    "14": "地址",
+    "9": "URL",
+    "18": "الرابط"
+  },
+  "vc.settings.empty": {
+    "0": "(empty)",
+    "4": "(비어 있음)",
+    "11": "(空)",
+    "13": "(空)",
+    "14": "(空)",
+    "9": "(leer)",
+    "18": "(فارغ)"
+  },
+  "vc.settings.edit": {
+    "0": "Edit",
+    "4": "편집",
+    "11": "編集",
+    "13": "编辑",
+    "14": "編輯",
+    "9": "Bearbeiten",
+    "18": "تعديل"
+  },
+  "vc.settings.customUrl": {
+    "0": "Custom Server URL",
+    "4": "서버 URL 사용자 지정",
+    "11": "カスタムサーバーURL",
+    "13": "自定义服务器地址",
+    "14": "自訂伺服器地址",
+    "9": "Benutzerdefinierte Server-URL",
+    "18": "رابط خادم مخصص"
+  },
+  "vc.settings.reconnect": {
+    "0": "Reconnect",
+    "4": "재연결",
+    "11": "再接続",
+    "13": "重新连接",
+    "14": "重新連線",
+    "9": "Neu verbinden",
+    "18": "إعادة الاتصال"
+  },
+  "vc.settings.natFixOn": {
+    "0": "NAT Fix (force relay)",
+    "4": "NAT 수정 (중계 강제)",
+    "11": "NAT修正 (リレー強制)",
+    "13": "NAT修复 (强制中继)",
+    "14": "NAT修復 (強制中繼)",
+    "9": "NAT-Fix (Relay erzwingen)",
+    "18": "إصلاح NAT (ترحيل إجباري)"
+  },
+  "vc.settings.natFixOff": {
+    "0": "NAT Fix (unavailable on Beijing server)",
+    "4": "NAT 수정 (베이징 서버에서 사용 불가)",
+    "11": "NAT修正 (北京サーバーでは利用不可)",
+    "13": "NAT修复 (北京服务器不可用)",
+    "14": "NAT修復 (北京伺服器不可用)",
+    "9": "NAT-Fix (nicht verfügbar auf Beijing-Server)",
+    "18": "إصلاح NAT (غير متاح على خادم بكين)"
+  },
+  "vc.settings.natFixWarn": {
+    "0": "Beijing server does not support NAT Fix.",
+    "4": "베이징 서버는 NAT 수정을 지원하지 않습니다.",
+    "11": "北京サーバーはNAT修正をサポートしていません。",
+    "13": "北京服务器不支持NAT修复。",
+    "14": "北京伺服器不支援NAT修復。",
+    "9": "Beijing-Server unterstützt kein NAT-Fix.",
+    "18": "خادم بكين لا يدعم إصلاح NAT."
+  },
+  "vc.settings.publicLobby": {
+    "0": "Public Lobby",
+    "4": "공개 로비",
+    "11": "公開ロビー",
+    "13": "公开大厅",
+    "14": "公開大廳",
+    "9": "Öffentliche Lobby",
+    "18": "الردهة العامة"
+  },
+  "vc.settings.publicLobbyEnable": {
+    "0": "Enable Public Lobby",
+    "4": "공개 로비 활성화",
+    "11": "公開ロビーを有効化",
+    "13": "启用公开大厅",
+    "14": "啟用公開大廳",
+    "9": "Öffentliche Lobby aktivieren",
+    "18": "تفعيل الردهة العامة"
+  },
+  "vc.settings.publicLobbyTitle": {
+    "0": "Public Lobby Title",
+    "4": "공개 로비 제목",
+    "11": "公開ロビータイトル",
+    "13": "公开大厅标题",
+    "14": "公開大廳標題",
+    "9": "Öffentlicher Lobby-Titel",
+    "18": "عنوان الردهة العامة"
+  },
+  "vc.settings.language": {
+    "0": "Language",
+    "4": "언어",
+    "11": "言語",
+    "13": "语言",
+    "14": "語言",
+    "9": "Sprache",
+    "18": "اللغة"
+  },
+  "vc.settings.advanced": {
+    "0": "Advanced",
+    "4": "고급",
+    "11": "詳細設定",
+    "13": "高级",
+    "14": "進階",
+    "9": "Erweitert",
+    "18": "متقدم"
+  },
+  "vc.settings.noiseSuppression": {
+    "0": "Noise Suppression",
+    "4": "노이즈 억제",
+    "11": "ノイズ抑制",
+    "13": "噪音抑制",
+    "14": "噪音抑制",
+    "9": "Rauschunterdrückung",
+    "18": "قمع الضوضاء"
+  },
+  "vc.settings.echoCancellation": {
+    "0": "Echo Cancellation",
+    "4": "에코 제거",
+    "11": "エコーキャンセル",
+    "13": "回声消除",
+    "14": "回聲消除",
+    "9": "Echounterdrückung",
+    "18": "إلغاء الصدى"
+  },
+  "vc.settings.vad": {
+    "0": "VAD (Voice Activity Detection)",
+    "4": "VAD (음성 감지)",
+    "11": "VAD (音声検出)",
+    "13": "语音检测 (VAD)",
+    "14": "語音檢測 (VAD)",
+    "9": "VAD (Sprachaktivitätserkennung)",
+    "18": "VAD (كشف النشاط الصوتي)"
+  },
   "vc.settings.title": {
     "0": "Interstellar Voice Chat",
+    "4": "인터스텔라 보이스 채팅",
+    "11": "インターステラ ボイスチャット",
     "13": "星际语音聊天",
-    "14": "星際語音聊天"
+    "14": "星際語音聊天",
+    "9": "Interstellar Voice Chat",
+    "18": "إنترستلر محادثة صوتية"
   },
   "vc.settings.personal": {
     "0": "Personal",
+    "4": "개인 설정",
+    "11": "個人設定",
     "13": "个人设置",
-    "14": "個人設定"
+    "14": "個人設定",
+    "9": "Persönlich",
+    "18": "شخصي"
   },
   "vc.settings.room": {
     "0": "Room",
+    "4": "방 설정",
+    "11": "ルーム設定",
     "13": "房间设置",
-    "14": "房間設定"
+    "14": "房間設定",
+    "9": "Raum",
+    "18": "الغرفة"
   },
   "vc.settings.microphone": {
     "0": "Microphone",
+    "4": "마이크",
+    "11": "マイク",
     "13": "麦克风",
-    "14": "麥克風"
+    "14": "麥克風",
+    "9": "Mikrofon",
+    "18": "ميكروفون"
   },
   "vc.settings.speaker": {
     "0": "Speaker",
+    "4": "스피커",
+    "11": "スピーカー",
     "13": "扬声器",
-    "14": "揚聲器"
+    "14": "揚聲器",
+    "9": "Lautsprecher",
+    "18": "سماعة"
   },
   "vc.settings.micVolume": {
     "0": "Mic Volume",
+    "4": "마이크 볼륨",
+    "11": "マイク音量",
     "13": "麦克风音量",
-    "14": "麥克風音量"
+    "14": "麥克風音量",
+    "9": "Mikrofon-Lautstärke",
+    "18": "صوت الميكروفون"
   },
   "vc.settings.masterVolume": {
     "0": "Master Volume",
+    "4": "전체 볼륨",
+    "11": "マスター音量",
     "13": "总输出音量",
-    "14": "總輸出音量"
+    "14": "總輸出音量",
+    "9": "Gesamtlautstärke",
+    "18": "الصوت الرئيسي"
   },
   "vc.settings.maxChatDistance": {
     "0": "Max Chat Distance",
+    "4": "최대 대화 거리",
+    "11": "最大チャット距離",
     "13": "最大聊天距离",
-    "14": "最大聊天距離"
+    "14": "最大聊天距離",
+    "9": "Max. Chat-Distanz",
+    "18": "أقصى مسافة للمحادثة"
   },
-    "vc.settings.wallsBlockSound": {
-        "0": "Walls Block Voice",
-        "13": "墙壁可以隔音",
-        "14": "牆壁可以隔音"
-    },
+  "vc.settings.wallsBlockSound": {
+    "0": "Walls Block Voice",
+    "4": "벽이 소리를 차단",
+    "11": "壁が音声を遮断",
+    "13": "墙壁可以隔音",
+    "14": "牆壁可以隔音",
+    "9": "Wände blockieren Stimme",
+    "18": "الجدران تحجب الصوت"
+  },
   "vc.settings.impostorHearGhosts": {
     "0": "Impostor Can Hear Ghosts",
+    "4": "임포스터가 유령 소리를 들음",
+    "11": "インポスターがゴーストの声を聞ける",
     "13": "内鬼可听到幽灵说话",
-    "14": "內鬼可聽到幽靈說話"
+    "14": "內鬼可聽到幽靈說話",
+    "9": "Impostor hört Geister",
+    "18": "المحتال يسمع الأشباح"
   },
   "vc.settings.onlyGhostsCanTalk": {
     "0": "Only Ghosts Can Talk",
+    "4": "유령만 대화 가능",
+    "11": "ゴーストのみ会話可能",
     "13": "仅幽灵可聊天",
-    "14": "僅幽靈可聊天"
+    "14": "僅幽靈可聊天",
+    "9": "Nur Geister können reden",
+    "18": "الأشباح فقط يمكنها التحدث"
   },
   "vc.settings.hearInVent": {
     "0": "Hear Outside While In Vent",
+    "4": "환풍구 안에서도 소리 들림",
+    "11": "ベント内でも外の音が聞こえる",
     "13": "躲在管道内可听到声音",
-    "14": "躲在管道內可聽到聲音"
+    "14": "躲在管道內可聽到聲音",
+    "9": "Hören im Lüftungsschacht",
+    "18": "سماع الخارج أثناء التواجد في الفتحة"
   },
   "vc.settings.hearVentPlayers": {
     "0": "Hear Players In Vent",
+    "4": "환풍구 안에 있는 플레이어 소리 들림",
+    "11": "ベント内のプレイヤーの声が聞こえる",
     "13": "外界可以听到管道内的声音",
-    "14": "外界可以聽到管道內的聲音"
+    "14": "外界可以聽到管道內的聲音",
+    "9": "Spieler im Schacht hören",
+    "18": "سماع اللاعبين في الفتحة"
   },
-    "vc.settings.ventPrivateChat": {
-        "0": "Vent Private Chat",
-        "13": "管道内私聊",
-        "14": "管道內私聊"
-    },
+  "vc.settings.ventPrivateChat": {
+    "0": "Vent Private Chat",
+    "4": "환풍구 비공개 채팅",
+    "11": "ベント内プライベートチャット",
+    "13": "管道内私聊",
+    "14": "管道內私聊",
+    "9": "Private Lüftungsschacht-Chat",
+    "18": "محادثة خاصة في الفتحة"
+  },
   "vc.settings.commsSabotageMutes": {
     "0": "Mute During Sabotage",
+    "4": "사보타주 중 음소거",
+    "11": "サボタージュ中はミュート",
     "13": "通讯破坏时全体静音",
-    "14": "通訊破壞時全體靜音"
+    "14": "通訊破壞時全體靜音",
+    "9": "Stumm bei Sabotage",
+    "18": "كتم أثناء التخريب"
   },
-    "vc.settings.cameraCanHear": {
-        "0": "Hear While On Camera",
-        "13": "监控可以收听声音",
-        "14": "監控可以收聽聲音"
-    },
-    "vc.settings.impostorPrivateRadio": {
-        "0": "Impostor Private Radio",
-        "13": "内鬼私密通话",
-        "14": "內鬼私密通話"
-    },
+  "vc.settings.cameraCanHear": {
+    "0": "Hear While On Camera",
+    "4": "카메라 사용 중에도 소리 들림",
+    "11": "カメラ使用中も音声が聞こえる",
+    "13": "监控可以收听声音",
+    "14": "監控可以收聽聲音",
+    "9": "Hören auf Kamera",
+    "18": "السماع أثناء استخدام الكاميرا"
+  },
+  "vc.settings.impostorPrivateRadio": {
+    "0": "Impostor Private Radio",
+    "4": "임포스터 비공개 무전",
+    "11": "インポスター専用無線",
+    "13": "内鬼私密通话",
+    "14": "內鬼私密通話",
+    "9": "Impostor Privatfunk",
+    "18": "راديو خاص للمحتال"
+  },
   "vc.settings.onlyMeetingOrLobby": {
     "0": "Only Meeting / Lobby Can Chat",
+    "4": "회의/로비에서만 대화 가능",
+    "11": "会議/ロビーのみ会話可能",
     "13": "仅会议与大厅可聊天",
-    "14": "僅會議與大廳可聊天"
+    "14": "僅會議與大廳可聊天",
+    "9": "Nur Meeting/Lobby Chat",
+    "18": "المحادثة فقط في الاجتماع/الردهة"
   },
   "vc.settings.defaultDevice": {
     "0": "Default",
+    "4": "기본값",
+    "11": "デフォルト",
     "13": "系统默认",
-    "14": "系統預設"
+    "14": "系統預設",
+    "9": "Standard",
+    "18": "افتراضي"
   },
   "vc.settings.noDeviceSupport": {
     "0": "Device selection is not supported on this platform.",
+    "4": "이 플랫폼에서는 기기 선택이 지원되지 않습니다.",
+    "11": "このプラットフォームではデバイス選択はサポートされていません。",
     "13": "当前平台不支持切换音频设备。",
-    "14": "當前平台不支援切換音頻設備。"
+    "14": "當前平台不支援切換音頻設備。",
+    "9": "Geräteauswahl wird auf dieser Plattform nicht unterstützt.",
+    "18": "اختيار الجهاز غير مدعوم على هذه المنصة."
   },
   "vc.settings.btnVC": {
     "0": "VC",
+    "4": "VC",
+    "11": "VC",
     "13": "语音",
-    "14": "語音"
+    "14": "語音",
+    "9": "VC",
+    "18": "VC"
   },
 
   "vc.hud.microphone": {
     "0": "Microphone",
+    "4": "마이크",
+    "11": "マイク",
     "13": "麦克风",
-    "14": "麥克風"
+    "14": "麥克風",
+    "9": "Mikrofon",
+    "18": "ميكروفون"
   },
   "vc.hud.speaker": {
     "0": "Speaker",
+    "4": "스피커",
+    "11": "スピーカー",
     "13": "扬声器",
-    "14": "揚聲器"
+    "14": "揚聲器",
+    "9": "Lautsprecher",
+    "18": "سماعة"
   },
   "vc.hud.status": {
     "0": "Status",
+    "4": "상태",
+    "11": "ステータス",
     "13": "状态",
-    "14": "狀態"
+    "14": "狀態",
+    "9": "Status",
+    "18": "الحالة"
   },
   "vc.hud.channel": {
     "0": "Channel",
+    "4": "채널",
+    "11": "チャンネル",
     "13": "频道",
-    "14": "頻道"
+    "14": "頻道",
+    "9": "Kanal",
+    "18": "القناة"
   },
   "vc.hud.volume": {
     "0": "Volume",
+    "4": "볼륨",
+    "11": "音量",
     "13": "音量",
-    "14": "音量"
+    "14": "音量",
+    "9": "Lautstärke",
+    "18": "الصوت"
   },
   "vc.hud.hotkey": {
     "0": "Hotkey",
+    "4": "단축키",
+    "11": "ホットキー",
     "13": "快捷键",
-    "14": "快捷鍵"
+    "14": "快捷鍵",
+    "9": "Tastenkürzel",
+    "18": "مفتاح الاختصار"
   },
   "vc.hud.active": {
     "0": "Active",
+    "4": "통화 중",
+    "11": "通話中",
     "13": "讲话中",
-    "14": "講話中"
+    "14": "講話中",
+    "9": "Aktiv",
+    "18": "نشط"
   },
   "vc.hud.muted": {
     "0": "Muted",
+    "4": "음소거",
+    "11": "ミュート",
     "13": "已静音",
-    "14": "已靜音"
+    "14": "已靜音",
+    "9": "Stumm",
+    "18": "مكتوم"
   },
   "vc.hud.all": {
     "0": "All",
+    "4": "전체",
+    "11": "全体",
     "13": "全体",
-    "14": "全體"
+    "14": "全體",
+    "9": "Alle",
+    "18": "الكل"
   },
   "vc.hud.impostors": {
     "0": "Impostors",
+    "4": "임포스터",
+    "11": "インポスター",
     "13": "内鬼",
-    "14": "內鬼"
+    "14": "內鬼",
+    "9": "Impostoren",
+    "18": "المحتالون"
   },
-    "vc.hud.impostorRadio": {
-        "0": "Impostor Radio",
-        "13": "内鬼私密通话",
-        "14": "內鬼私密通話"
-    },
+  "vc.hud.impostorRadio": {
+    "0": "Impostor Radio",
+    "4": "임포스터 무전",
+    "11": "インポスター無線",
+    "13": "内鬼私密通话",
+    "14": "內鬼私密通話",
+    "9": "Impostor Funk",
+    "18": "راديو المحتال"
+  },
 
   "vc.popup.capacityTitle": {
     "0": "Server Full",
+    "4": "서버가 가득 참",
+    "11": "サーバー満員",
     "13": "语音服务器已满",
-    "14": "語音伺服器已滿"
+    "14": "語音伺服器已滿",
+    "9": "Server voll",
+    "18": "الخادم ممتلئ"
   },
   "vc.popup.switchServer": {
     "0": "Switch Server",
+    "4": "서버 변경",
+    "11": "サーバー切替",
     "13": "切换服务器",
-    "14": "切換伺服器"
+    "14": "切換伺服器",
+    "9": "Server wechseln",
+    "18": "تغيير الخادم"
   },
   "vc.popup.ok": {
     "0": "OK",
+    "4": "확인",
+    "11": "OK",
     "13": "确定",
-    "14": "確定"
+    "14": "確定",
+    "9": "OK",
+    "18": "موافق"
   },
   "vc.popup.voiceServer": {
     "0": "Voice Chat Server",
+    "4": "음성 채팅 서버",
+    "11": "ボイスチャットサーバー",
     "13": "语音聊天服务器",
-    "14": "語音聊天伺服器"
+    "14": "語音聊天伺服器",
+    "9": "Voice-Chat-Server",
+    "18": "خادم المحادثة الصوتية"
   },
   "vc.popup.optimalPlayers": {
     "0": "Optimal Capacity",
+    "4": "최적 수용 인원",
+    "11": "最適容量",
     "13": "最佳承载人数",
-    "14": "最佳承載人數"
+    "14": "最佳承載人數",
+    "9": "Optimale Kapazität",
+    "18": "السعة المثلى"
   },
   "vc.popup.currentPlayers": {
     "0": "Current Online",
+    "4": "현재 접속자",
+    "11": "現在のオンライン",
     "13": "当前在线人数",
-    "14": "當前在線人數"
+    "14": "當前在線人數",
+    "9": "Aktuell online",
+    "18": "المتصلون حالياً"
   },
   "vc.popup.atCapacity": {
     "0": "The voice chat server has reached its optimal player capacity.",
+    "4": "음성 채팅 서버가 최적 수용 인원에 도달했습니다.",
+    "11": "ボイスチャットサーバーが最適容量に達しました。",
     "13": "语音聊天服务器已达到最佳承载人数。",
-    "14": "語音聊天伺服器已達到最佳承載人數。"
+    "14": "語音聊天伺服器已達到最佳承載人數。",
+    "9": "Der Voice-Chat-Server hat seine optimale Kapazität erreicht.",
+    "18": "وصل خادم المحادثة الصوتية إلى سعته المثلى."
   },
   "vc.popup.switchHint": {
     "0": "Please consider switching to a less crowded server,",
+    "4": "덜 붐비는 서버로 전환을 고려해 주세요,",
+    "11": "混雑していないサーバーへの切替をご検討ください。",
     "13": "建议换到一个不那么拥挤的服务器，",
-    "14": "建議換到一個沒那麼擁擠的伺服器，"
+    "14": "建議換到一個沒那麼擁擠的伺服器，",
+    "9": "Bitte wechsle zu einem weniger überfüllten Server,",
+    "18": "يرجى التفكير في التبديل إلى خادم أقل ازدحاماً،"
   },
   "vc.popup.sponsorHint": {
     "0": "or visit our main menu to sponsor a server upgrade!",
+    "4": "또는 메인 메뉴에서 서버 업그레이드를 후원해 주세요!",
+    "11": "またはメインメニューからサーバーアップグレードを支援してください！",
     "13": "或前往主界面赞助我们升级服务器！",
-    "14": "或前往主界面贊助我們升級伺服器！"
+    "14": "或前往主界面贊助我們升級伺服器！",
+    "9": "oder besuche unser Hauptmenü um ein Server-Upgrade zu sponsorn!",
+    "18": "أو قم بزيارة القائمة الرئيسية لرعاية ترقية الخادم!"
   },
 
   "vc.splash.title": {
     "0": "Interstellar Voice Chat",
+    "4": "인터스텔라 보이스 채팅",
+    "11": "インターステラ ボイスチャット",
     "13": "星际语音聊天",
-    "14": "星際語音聊天"
+    "14": "星際語音聊天",
+    "9": "Interstellar Voice Chat",
+    "18": "إنترستلر محادثة صوتية"
   },
   "vc.splash.vcServer": {
     "0": "Voice Chat Server",
+    "4": "음성 채팅 서버",
+    "11": "ボイスチャットサーバー",
     "13": "语音聊天服务器",
-    "14": "語音聊天伺服器"
+    "14": "語音聊天伺服器",
+    "9": "Voice-Chat-Server",
+    "18": "خادم المحادثة الصوتية"
   },
   "vc.splash.optimalPlayers": {
     "0": "Optimal Capacity",
+    "4": "최적 수용 인원",
+    "11": "最適容量",
     "13": "最佳承载人数",
-    "14": "最佳承載人數"
+    "14": "最佳承載人數",
+    "9": "Optimale Kapazität",
+    "18": "السعة المثلى"
   },
   "vc.splash.currentPlayers": {
     "0": "Current Online",
+    "4": "현재 접속자",
+    "11": "現在のオンライン",
     "13": "当前在线人数",
-    "14": "當前在線人數"
+    "14": "當前在線人數",
+    "9": "Aktuell online",
+    "18": "المتصلون حالياً"
   },
   "vc.splash.madeBy": {
     "0": "Developed by",
+    "4": "개발자",
+    "11": "開発者",
     "13": "开发者",
-    "14": "開發者"
+    "14": "開發者",
+    "9": "Entwickelt von",
+    "18": "طور بواسطة"
   },
   "vc.splash.sponsorBy": {
     "0": "Sponsored by",
+    "4": "후원",
+    "11": "スポンサー",
     "13": "赞助者",
-    "14": "贊助者"
+    "14": "贊助者",
+    "9": "Gesponsert von",
+    "18": "برعاية"
   },
 
   "vc.volume.title": {
     "0": "Player Volumes",
+    "4": "플레이어 볼륨",
+    "11": "プレイヤー音量",
     "13": "玩家音量调节",
-    "14": "玩家音量調節"
+    "14": "玩家音量調節",
+    "9": "Spieler-Lautstärken",
+    "18": "أصوات اللاعبين"
   },
   "vc.volume.noPlayers": {
     "0": "No players in the room",
+    "4": "방에 플레이어가 없습니다",
+    "11": "ルームにプレイヤーがいません",
     "13": "房间里还没有其他玩家",
-    "14": "房間裡還沒有其他玩家"  },
+    "14": "房間裡還沒有其他玩家",
+    "9": "Keine Spieler im Raum",
+    "18": "لا يوجد لاعبون في الغرفة"
+  },
   "vc.update.title": {
     "0": "Interstellar Voice Chat Update",
+    "4": "인터스텔라 보이스 채팅 업데이트",
+    "11": "インターステラ ボイスチャット 更新",
     "13": "星际语音聊天 更新",
-    "14": "星際語音聊天 更新"
+    "14": "星際語音聊天 更新",
+    "9": "Interstellar Voice Chat Update",
+    "18": "تحديث إنترستلر للمحادثة الصوتية"
   },
   "vc.update.desc": {
     "0": "v{current} → v{latest}",
-    "13": "v{current} → v{latest}"
+    "4": "v{current} → v{latest}",
+    "11": "v{current} → v{latest}",
+    "13": "v{current} → v{latest}",
+    "14": "v{current} → v{latest}",
+    "9": "v{current} → v{latest}",
+    "18": "v{current} → v{latest}"
   },
   "vc.update.button": {
     "0": "Update",
+    "4": "업데이트",
+    "11": "更新",
     "13": "更新",
-    "14": "更新"
+    "14": "更新",
+    "9": "Aktualisieren",
+    "18": "تحديث"
   },
   "vc.update.dismiss": {
     "0": "Dismiss",
+    "4": "무시",
+    "11": "無視",
     "13": "忽略",
-    "14": "忽略"
+    "14": "忽略",
+    "9": "Schließen",
+    "18": "تجاهل"
   },
   "vc.update.android": {
     "0": "Android users: please update via your mod launcher.",
+    "4": "Android 사용자: 모드 런처를 통해 업데이트해 주세요.",
+    "11": "Androidユーザー: モッドランチャーから更新してください。",
     "13": "安卓用户请前往启动器更新。",
-    "14": "安卓用戶請前往啟動器更新。"
+    "14": "安卓用戶請前往啟動器更新。",
+    "9": "Android-Nutzer: Bitte über den Mod-Launcher aktualisieren.",
+    "18": "مستخدمو أندرويد: يرجى التحديث عبر مشغل المودات."
   },
   "vc.update.downloading": {
     "0": "Downloading update...",
+    "4": "업데이트 다운로드 중...",
+    "11": "更新をダウンロード中...",
     "13": "正在下载更新...",
-    "14": "正在下載更新..."
+    "14": "正在下載更新...",
+    "9": "Update wird heruntergeladen...",
+    "18": "جاري تحميل التحديث..."
   },
   "vc.update.success": {
     "0": "Update complete! Please restart the game.",
+    "4": "업데이트 완료! 게임을 다시 시작해 주세요.",
+    "11": "更新完了！ゲームを再起動してください。",
     "13": "更新完成！请重启游戏。",
-    "14": "更新完成！請重啟遊戲。"
+    "14": "更新完成！請重啟遊戲。",
+    "9": "Update abgeschlossen! Bitte starte das Spiel neu.",
+    "18": "اكتمل التحديث! يرجى إعادة تشغيل اللعبة."
   },
   "vc.update.failed": {
     "0": "Update failed. Please try again or update manually.",
+    "4": "업데이트 실패. 다시 시도하거나 수동으로 업데이트해 주세요.",
+    "11": "更新に失敗しました。再試行するか手動で更新してください。",
     "13": "更新失败，请重试或手动更新。",
-    "14": "更新失敗，請重試或手動更新。"  }
+    "14": "更新失敗，請重試或手動更新。",
+    "9": "Update fehlgeschlagen. Bitte erneut versuchen oder manuell aktualisieren.",
+    "18": "فشل التحديث. يرجى المحاولة مرة أخرى أو التحديث يدوياً."
+  }
 }
+

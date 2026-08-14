@@ -1,8 +1,8 @@
 using System;
-using Interstellar.VoiceChat;
+using Interstellar.Voice;
 using UnityEngine;
 
-namespace VoiceChatPlugin.Android;
+namespace Interstellar.Android;
 
 public class AndroidMicrophone : IDisposable
 {

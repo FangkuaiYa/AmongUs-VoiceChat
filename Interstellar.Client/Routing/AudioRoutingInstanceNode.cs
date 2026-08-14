@@ -1,5 +1,5 @@
 #pragma warning disable CS8618, CS8602, CS8603, CS8604
-using Interstellar.NAudio.Provider;
+using Interstellar.Audio.Provider;
 using Interstellar.Routing.Node;
 using NAudio.Wave;
 using System;

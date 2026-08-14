@@ -1,9 +1,9 @@
 using Il2CppInterop.Runtime.Injection;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using VoiceChatPlugin.VoiceChat;
+using Interstellar.Voice;
 
-namespace VoiceChatPlugin;
+namespace Interstellar;
 
 internal class VCManager : MonoBehaviour
 {
@@ -26,7 +26,7 @@ internal class VCManager : MonoBehaviour
         {
             case "MainMenu":
             case "MatchMaking":
-                VoiceChatRoom.CloseCurrentRoom();
+                VoiceRoom.CloseCurrentRoom();
                 break;
         }
     }

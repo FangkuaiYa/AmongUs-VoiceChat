@@ -1,5 +1,5 @@
-﻿using Concentus;
-using Interstellar.NAudio.Provider;
+using Concentus;
+using Interstellar.Audio.Provider;
 using Interstellar.Routing.Node;
 using NAudio.Wave;
 using System;

@@ -2,23 +2,23 @@ using System.Collections;
 using BepInEx.Unity.IL2CPP.Utils.Collections;
 using TMPro;
 using UnityEngine;
-using VoiceChatPlugin.VoiceChat;
-using static VoiceChatPlugin.VoiceChat.TranslationHelper;
+using Interstellar.Voice;
+using static Interstellar.Voice.TranslationHelper;
 using Object = UnityEngine.Object;
 
-namespace VoiceChatPlugin;
+namespace Interstellar;
 
 /// <summary>
 /// Shows a splash screen overlay when joining a voice room.
 /// Displays the voice server address, optimal player count, and current player count.
-/// Triggered from InterstellarRoomDriver when VoiceChatRoom.Start() succeeds.
+/// Triggered from InterstellarRoomDriver when VoiceRoom.Start() succeeds.
 /// </summary>
 public static class JoinSplashScreen
 {
     private static bool _isShowing;
 
     /// <summary>
-    /// Call when VoiceChatRoom.Start() succeeds. Shows a fade-in → hold → fade-out overlay.
+    /// Call when VoiceRoom.Start() succeeds. Shows a fade-in → hold → fade-out overlay.
     /// Does NOT require ServerInfo to be received yet — shows what's available.
     /// </summary>
     private static MonoBehaviour? _runner;
@@ -121,7 +121,7 @@ public static class JoinSplashScreen
 
         // Hold (2.5s) — poll for ServerInfo arrival and update text
         var holdEnd = Time.time + 2.5f;
-        var hadInfo = VoiceChatServerState.HasInfo;
+        var hadInfo = VoiceServerState.HasInfo;
         while (Time.time < holdEnd)
         {
             if (!textTmp)
@@ -130,7 +130,7 @@ public static class JoinSplashScreen
                 yield break;
             }
 
-            if (!hadInfo && VoiceChatServerState.HasInfo)
+            if (!hadInfo && VoiceServerState.HasInfo)
             {
                 textTmp.text = BuildSplashText();
                 hadInfo = true;
@@ -175,15 +175,15 @@ public static class JoinSplashScreen
         sb.AppendLine($"<b>{Get("vc.splash.title", "Interstellar Voice Chat")}</b>");
         sb.AppendLine();
 
-        if (VoiceChatServerState.HasInfo)
+        if (VoiceServerState.HasInfo)
         {
             var locLabel = Get("vc.splash.vcServer", "VC Server");
             var opLabel = Get("vc.splash.optimalPlayers", "Optimal Players");
             var cpLabel = Get("vc.splash.currentPlayers", "Current Players");
-            var loc = CustomServerLoader.MatchedVcLocation ?? VoiceChatServerState.VoiceServerUrl;
+            var loc = VoiceConfig.GetServerLocationName(VoiceServerState.VoiceServerUrl) ?? VoiceServerState.VoiceServerUrl;
             sb.AppendLine($"<size=80%>{locLabel}: <color=#58a6ff>{loc}</color></size>");
-            sb.AppendLine($"<size=80%>{opLabel}: <color=#3fb950>{VoiceChatServerState.OptimalPlayers}</color></size>");
-            sb.AppendLine($"<size=80%>{cpLabel}: <color=#d29922>{VoiceChatServerState.CurrentTotalPlayers}</color></size>");
+            sb.AppendLine($"<size=80%>{opLabel}: <color=#3fb950>{VoiceServerState.OptimalPlayers}</color></size>");
+            sb.AppendLine($"<size=80%>{cpLabel}: <color=#d29922>{VoiceServerState.CurrentTotalPlayers}</color></size>");
         }
         else
         {

@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace VoiceChatPlugin.Android;
+namespace Interstellar.Android;
 
 internal static class StarlightVoiceNative
 {

@@ -1,4 +1,4 @@
-﻿using Interstellar.NAudio.Provider;
+using Interstellar.Audio.Provider;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;

@@ -2,10 +2,10 @@ using System;
 using System.Threading;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
-using Interstellar.VoiceChat;
+using Interstellar.Voice;
 using UnityEngine;
 
-namespace VoiceChatPlugin.Android;
+namespace Interstellar.Android;
 
 public class AndroidSpeaker : IDisposable
 {

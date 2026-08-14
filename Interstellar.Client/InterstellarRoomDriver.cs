@@ -1,9 +1,9 @@
 using UnityEngine;
-using VoiceChatPlugin;
-using VoiceChatPlugin.VoiceChat;
+using Interstellar;
+using Interstellar.Voice;
 using Object = UnityEngine.Object;
 
-namespace VoiceChatPlugin;
+namespace Interstellar;
 
 internal static class InterstellarRoomDriver
 {
@@ -27,32 +27,32 @@ internal static class InterstellarRoomDriver
 
         if (shouldNotUseVC)
         {
-            if (VoiceChatRoom.Current != null)
-                VoiceChatRoom.CloseCurrentRoom();
+            if (VoiceRoom.Current != null)
+                VoiceRoom.CloseCurrentRoom();
             _wasInIntro = _wasInEndGame = false;
             _splashShownThisGame = false;
-            VoiceChatServerState.Reset();
+            VoiceServerState.Reset();
             return;
         }
 
         // Nebula: if (Instance == null) StartVoiceChat(region, roomId)
-        if (VoiceChatRoom.Current == null)
+        if (VoiceRoom.Current == null)
         {
             string region = AmongUsClient.Instance!.networkAddress;
             string roomId = AmongUsClient.Instance.GameId.ToString();
-            VoiceChatRoom.Start(region, roomId);
+            VoiceRoom.Start(region, roomId);
             InterstellarHudState.ApplyMicState();
             InterstellarHudState.ApplySpeakerState();
 
             if (AmongUsClient.Instance.AmHost)
             {
-                VoiceChatConfig.ApplyLocalHostSettingsToSynced();
+                VoiceConfig.ApplyLocalHostSettingsToSynced();
                 InterstellarHudState.MarkRoomSettingsDirty();
             }
 
             // Force profile send after room creation to ensure server
             // receives it even on first join before TryUpdateLocalProfile fires.
-            VoiceChatRoom.Current!.ForceUpdateLocalProfile();
+            VoiceRoom.Current!.ForceUpdateLocalProfile();
 
             InterstellarPlugin.Logger.LogInfo($"[VC] Room started: region={region} room={roomId}");
 
@@ -64,15 +64,15 @@ internal static class InterstellarRoomDriver
             }
         }
 
-        if (VoiceChatRoom.Current == null) return;
+        if (VoiceRoom.Current == null) return;
 
         // IntroCutscene ended → Rejoin to re-sync profiles
         bool inIntro = IntroCutscene.Instance != null;
         if (_wasInIntro && !inIntro)
         {
-            foreach (var c in VoiceChatRoom.Current.AllClients)
+            foreach (var c in VoiceRoom.Current.AllClients)
                 c.ResetMapping();
-            VoiceChatRoom.Current.ForceUpdateLocalProfile();
+            VoiceRoom.Current.ForceUpdateLocalProfile();
             InterstellarPlugin.Logger.LogInfo("[VC] IntroCutscene ended: mappings reset, profile re-broadcast.");
         }
         _wasInIntro = inIntro;
@@ -81,15 +81,16 @@ internal static class InterstellarRoomDriver
         bool inEndGame = Object.FindObjectOfType<EndGameManager>() != null;
         if (inEndGame && !_wasInEndGame)
         {
-            VoiceChatRoom.Current.Rejoin();
-            VoiceChatRoom.Current.ForceUpdateLocalProfile();
+            VoiceRoom.Current.Rejoin();
+            VoiceRoom.Current.ForceUpdateLocalProfile();
             InterstellarPlugin.Logger.LogInfo("[VC] EndGame: room rejoined.");
         }
         _wasInEndGame = inEndGame;
 
         InterstellarHudState.TrySyncHostRoomSettings();
+        InterstellarHudState.TrySyncPublicLobby();
 
-        try { VoiceChatRoom.Current.Update(); }
+        try { VoiceRoom.Current.Update(); }
         catch (System.Exception ex)
         { InterstellarPlugin.Logger.LogError("[VC] Room update error: " + ex); }
     }

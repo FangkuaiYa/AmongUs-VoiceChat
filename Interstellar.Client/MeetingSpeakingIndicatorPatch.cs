@@ -1,10 +1,10 @@
 using HarmonyLib;
-using VoiceChatPlugin.VoiceChat;
+using Interstellar.Voice;
 using UnityEngine;
 using Object = UnityEngine.Object;
 using System.Collections.Generic;
 
-namespace VoiceChatPlugin;
+namespace Interstellar;
 
 [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Update))]
 public static class MeetingSpeakingIndicatorPatch
@@ -28,7 +28,7 @@ public static class MeetingSpeakingIndicatorPatch
             return;
         }
 
-        var room = VoiceChatRoom.Current;
+        var room = VoiceRoom.Current;
 
         var speaking = new HashSet<byte>();
         if (room != null)

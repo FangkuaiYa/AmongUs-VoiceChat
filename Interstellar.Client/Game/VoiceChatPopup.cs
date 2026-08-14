@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace VoiceChatPlugin.VoiceChat;
+namespace Interstellar.Voice;
 
 /// <summary>
 /// Shows a capacity warning via Among Us's built-in HudManager.ShowPopUp().
@@ -22,8 +22,8 @@ public static class VoiceChatPopup
     public static void ShowCapacityWarning()
     {
         if (_hasWarnedThisSession) return;
-        if (!VoiceChatServerState.HasInfo) return;
-        if (!VoiceChatServerState.IsAtCapacity) return;
+        if (!VoiceServerState.HasInfo) return;
+        if (!VoiceServerState.IsAtCapacity) return;
 
         var hud = HudManager.Instance;
         if (hud == null) return;
@@ -35,13 +35,13 @@ public static class VoiceChatPopup
         sb.AppendLine();
         sb.Append(TranslationHelper.Get("vc.popup.voiceServer", "Voice Server"));
         sb.Append(": ");
-        sb.AppendLine(VoiceChatServerState.VoiceServerUrl);
+        sb.AppendLine(VoiceServerState.VoiceServerUrl);
         sb.Append(TranslationHelper.Get("vc.popup.optimalPlayers", "Optimal Players"));
         sb.Append(": ");
-        sb.AppendLine(VoiceChatServerState.OptimalPlayers.ToString());
+        sb.AppendLine(VoiceServerState.OptimalPlayers.ToString());
         sb.Append(TranslationHelper.Get("vc.popup.currentPlayers", "Current Players"));
         sb.Append(": ");
-        sb.AppendLine(VoiceChatServerState.CurrentTotalPlayers.ToString());
+        sb.AppendLine(VoiceServerState.CurrentTotalPlayers.ToString());
         sb.AppendLine();
         sb.AppendLine(TranslationHelper.Get("vc.popup.atCapacity", "The voice server is at optimal capacity."));
         sb.AppendLine(TranslationHelper.Get("vc.popup.switchHint", "Consider switching to a different server,"));

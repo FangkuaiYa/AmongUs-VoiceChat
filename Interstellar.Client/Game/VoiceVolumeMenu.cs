@@ -6,10 +6,10 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
 using static UnityEngine.UI.Button;
-using static VoiceChatPlugin.VoiceChat.TranslationHelper;
+using static Interstellar.Voice.TranslationHelper;
 using Object = UnityEngine.Object;
 
-namespace VoiceChatPlugin.VoiceChat;
+namespace Interstellar.Voice;
 
 [HarmonyPatch]
 public static class VoiceVolumeMenu
@@ -300,8 +300,8 @@ public static class VoiceVolumeMenu
 
     private static float GetVolume(PlayerEntry entry)
     {
-        if (VoiceChatRoom.Current != null)
-            foreach (var c in VoiceChatRoom.Current.AllClients)
+        if (VoiceRoom.Current != null)
+            foreach (var c in VoiceRoom.Current.AllClients)
                 if (c.PlayerName == entry.Name || c.PlayerId == entry.PlayerId)
                     return c.Volume;
         return 1f;
@@ -309,8 +309,8 @@ public static class VoiceVolumeMenu
 
     private static void ApplyVolume(PlayerEntry entry, float v)
     {
-        if (VoiceChatRoom.Current != null)
-            foreach (var c in VoiceChatRoom.Current.AllClients)
+        if (VoiceRoom.Current != null)
+            foreach (var c in VoiceRoom.Current.AllClients)
                 if (c.PlayerName == entry.Name || c.PlayerId == entry.PlayerId)
                 { c.SetVolume(v); break; }
     }
@@ -323,8 +323,8 @@ public static class VoiceVolumeMenu
         if (!AmongUsClient.Instance) return list;
         var seen = new HashSet<byte>();
 
-        if (VoiceChatRoom.Current != null)
-            foreach (var c in VoiceChatRoom.Current.AllClients)
+        if (VoiceRoom.Current != null)
+            foreach (var c in VoiceRoom.Current.AllClients)
             {
                 if (c.PlayerId == byte.MaxValue || !seen.Add(c.PlayerId)) continue;
                 var pc = FindPlayer(c.PlayerId);

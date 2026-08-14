@@ -2,11 +2,11 @@ using Interstellar.Routing;
 using Interstellar.Routing.Router;
 using UnityEngine;
 
-namespace VoiceChatPlugin.VoiceChat;
+namespace Interstellar.Voice;
 
 public class VCPlayer
 {
-    private readonly VoiceChatRoom _room;
+    private readonly VoiceRoom _room;
     private readonly int _clientId;
     private readonly StereoRouter.Property _imager;
     private readonly VolumeRouter.Property _normalVolume, _ghostVolume, _radioVolume, _clientVolume;
@@ -18,6 +18,7 @@ public class VCPlayer
 
     public string PlayerName => _playerName;
     public byte PlayerId => _playerId;
+    public int ClientId => _clientId;
     public float Volume => _clientVolume.Volume;
     public float Level => _levelMeter.Level;
     public bool IsMapped => _mappedPlayer != null && _mappedPlayer;
@@ -37,7 +38,7 @@ public class VCPlayer
     }
 
     public VCPlayer(
-        VoiceChatRoom room,
+        VoiceRoom room,
         AudioRoutingInstance instance,
         StereoRouter imager,
         VolumeRouter normalVolume,
@@ -104,7 +105,7 @@ public class VCPlayer
         CheckMapping();
         if (!IsMapped) { MuteAll(); return; }
 
-        var s = VoiceChatConfig.SyncedRoomSettings;
+        var s = VoiceConfig.SyncedRoomSettings;
         bool localDead = PlayerControl.LocalPlayer && PlayerControl.LocalPlayer.Data?.IsDead == true;
         bool targetDead = _mappedPlayer!.Data?.IsDead == true;
         bool localImp = PlayerControl.LocalPlayer && PlayerControl.LocalPlayer.Data?.Role?.IsImpostor == true;
@@ -168,7 +169,7 @@ public class VCPlayer
 
     private float _wallCoeff = 1f;
 
-    private static float CalcWallCoeff(Vector2 listener, Vector2 speaker, ref float coeff, VoiceChatRoomSettings s)
+    private static float CalcWallCoeff(Vector2 listener, Vector2 speaker, ref float coeff, VoiceRoomSettings s)
     {
         if (!s.WallsBlockSound) { coeff = 1f; return 1f; }
 
@@ -179,7 +180,7 @@ public class VCPlayer
 
     internal void UpdateTaskPhase(
         Vector2? listenerPos,
-        IEnumerable<VoiceChatRoom.SpeakerCache> speakers,
+        IEnumerable<VoiceRoom.SpeakerCache> speakers,
         IEnumerable<IVoiceComponent> virtualMics,
         bool localInVent,
         bool commsSabActive)
@@ -187,7 +188,7 @@ public class VCPlayer
         CheckMapping();
         if (!IsMapped || !listenerPos.HasValue) { MuteAll(); return; }
 
-        var s = VoiceChatConfig.SyncedRoomSettings;
+        var s = VoiceConfig.SyncedRoomSettings;
         var targetPos = (Vector2)_mappedPlayer!.transform.position;
         bool localDead = PlayerControl.LocalPlayer && PlayerControl.LocalPlayer.Data?.IsDead == true;
         bool targetDead = _mappedPlayer.Data?.IsDead == true;
@@ -200,8 +201,8 @@ public class VCPlayer
         if (commsSabActive && s.CommsSabDisables && !localImp && !localDead) { MuteAll(); return; }
 
         float dist = Vector2.Distance(targetPos, listenerPos.Value);
-        float volume = VoiceChatRoom.GetVolume(dist, s.MaxChatDistance);
-        float pan = VoiceChatRoom.GetPan(listenerPos.Value.x, targetPos.x);
+        float volume = VoiceRoom.GetVolume(dist, s.MaxChatDistance);
+        float pan = VoiceRoom.GetPan(listenerPos.Value.x, targetPos.x);
 
         if (localDead)
         {

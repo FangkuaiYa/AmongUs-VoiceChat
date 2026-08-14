@@ -1,6 +1,6 @@
 using HarmonyLib;
 
-namespace VoiceChatPlugin.VoiceChat;
+namespace Interstellar.Voice;
 
 [HarmonyPatch]
 public static class VoiceChatPatches

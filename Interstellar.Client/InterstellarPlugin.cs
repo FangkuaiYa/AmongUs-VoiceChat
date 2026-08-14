@@ -3,15 +3,16 @@ using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
-using VoiceChatPlugin.VoiceChat;
+using Il2CppInterop.Runtime.Injection;
+using Interstellar.Voice;
 
-namespace VoiceChatPlugin;
+namespace Interstellar;
 
 [BepInPlugin(Id, "Interstellar Voice Chat", PluginVersion)]
 [BepInProcess("Among Us.exe")]
 public class InterstellarPlugin : BasePlugin
 {
-    public const string Id = "com.voicechatplugin.cn";
+    public const string Id = "com.interstellar.voice";
     public const string PluginVersion = "2.2.0";
     public static ManualLogSource Logger { get; private set; } = null!;
 
@@ -45,14 +46,22 @@ public class InterstellarPlugin : BasePlugin
     public override void Load()
     {
         Logger = Log;
-        Logger.LogInfo("[VC] Loading VoiceChatPlugin.");
+        Logger.LogInfo("[VC] Loading Interstellar.");
 
-        VoiceChatConfig.Init(Config);
+        VoiceConfig.Init(Config);
         TranslationHelper.Load();
-        CustomServerLoader.Load();
 
-        // Register splash runner early so JoinSplashScreen works on first join
-        Il2CppInterop.Runtime.Injection.ClassInjector.RegisterTypeInIl2Cpp<JoinSplashScreen.SplashCoroutineRunner>();
+        // Register IL2CPP types
+        ClassInjector.RegisterTypeInIl2Cpp<JoinSplashScreen.SplashCoroutineRunner>();
+        ClassInjector.RegisterTypeInIl2Cpp<VoiceSettingsWindow>();
+        ClassInjector.RegisterTypeInIl2Cpp<PublicLobbyWindow>();
+
+        // Attach to plugin GameObject (MCI pattern)
+        var settingsWindow = this.AddComponent<VoiceSettingsWindow>();
+        var lobbyWindow = this.AddComponent<PublicLobbyWindow>();
+
+        // Open settings immediately when game starts
+        settingsWindow.Open();
 
         VCManager.RegisterSceneHook();
         InterstellarHudState.Init();
@@ -60,6 +69,6 @@ public class InterstellarPlugin : BasePlugin
         Harmony harmony = new(Id);
         harmony.PatchAll(Assembly.GetExecutingAssembly());
 
-        Logger.LogInfo("[VC] VoiceChatPlugin loaded.");
+        Logger.LogInfo("[VC] Interstellar loaded.");
     }
 }

@@ -4,10 +4,10 @@ using BepInEx.Unity.IL2CPP.Utils.Collections;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
-using static VoiceChatPlugin.VoiceChat.TranslationHelper;
+using static Interstellar.Voice.TranslationHelper;
 using Object = UnityEngine.Object;
 
-namespace VoiceChatPlugin;
+namespace Interstellar;
 
 /// <summary>
 ///     Shows the Interstellar Voice Chat logo as a transition animation
@@ -39,7 +39,7 @@ public static class SplashScreenPatch
                 wrapMode = TextureWrapMode.Clamp
             };
             var stream = Assembly.GetExecutingAssembly()
-                .GetManifestResourceStream("VoiceChatPlugin.Resources.Logo.jpg")!;
+                .GetManifestResourceStream("Interstellar.Resources.Logo.jpg")!;
             using var ms = new MemoryStream();
             stream.CopyTo(ms);
             tex.LoadImage(ms.ToArray(), false);

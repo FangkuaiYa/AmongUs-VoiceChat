@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace VoiceChatPlugin.VoiceChat;
+namespace Interstellar.Voice;
 
 public interface IVoiceComponent
 {

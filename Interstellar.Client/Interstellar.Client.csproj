@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
-    <RootNamespace>VoiceChatPlugin</RootNamespace>
+    <RootNamespace>Interstellar</RootNamespace>
     <AssemblyName>Interstellar.Client</AssemblyName>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <DebugType>embedded</DebugType>
@@ -35,7 +35,6 @@
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Concentus" Version="2.2.2" />
-    <PackageReference Include="SIPSorcery.WebSocketSharp" Version="0.0.1" />
   </ItemGroup>
 
   <!-- ================================================================
@@ -68,7 +67,7 @@
       <_DepDlls Include="$(TargetDir)*.dll" Exclude="$(TargetDir)Interstellar.Client.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(_DepDlls)" DestinationFolder="$(ProjectDir)Libs" SkipUnchangedFiles="true" />
-    <Message Text="Collected @(_DepDlls->Count()) dependency DLL(s) into Libs/ — rebuild to embed them." Importance="high" />
+    <Message Text="Collected @(_DepDlls-&gt;Count()) dependency DLL(s) into Libs/ — rebuild to embed them." Importance="high" />
   </Target>
 
 </Project>
