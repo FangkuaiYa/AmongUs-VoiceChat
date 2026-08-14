@@ -187,7 +187,7 @@ public static class JoinSplashScreen
         }
         else
         {
-            sb.AppendLine($"<size=70%>{Get("vc.splash.madeBy", "Made by")} <color=#00ffff>FangkuaiYa</color>, <color=#00ffff>HayaiUme</color></size>");
+            sb.AppendLine($"<size=70%>{Get("vc.splash.madeBy", "Made by")} <color=#00ffff>FangkuaiYa</color>, <color=#00ffff>HayaiUme</color></size>, <color=#FFD700>Farewell</color>");
             sb.AppendLine($"<size=70%>{Get("vc.splash.sponsorBy", "Sponsor by")} <color=#ff44ff>TAIKongguo</color></size>");
         }
 
