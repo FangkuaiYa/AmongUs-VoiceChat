@@ -1,123 +1,37 @@
 # Interstellar Voice Chat
 
-Real-time proximity voice chat for Among Us. A single BepInEx plugin DLL plus a lightweight Go relay server.
+Real-time proximity voice chat for Among Us. A single BepInEx plugin DLL that connects to BetterCrewLink-compatible voice servers.
 
 ## Project Structure
 
 ```
 AmongUs-VoiceChat/
 ├── Interstellar.sln
-├── voice-server-go/           # Go voice relay server
-│   ├── main.go
-│   ├── Dockerfile
-│   └── internal/
-│       ├── crypto/            #   AES-256-GCM encryption
-│       ├── audio/             #   Jitter buffer, FEC, rate limiting
-│       ├── protocol/          #   Binary message protocol
-│       └── server/            #   WebSocket + HTTP + room manager
 ├── Interstellar.Client/       # BepInEx plugin — audio engine + game integration
-│   ├── Network/               #   Binary protocol + AES-GCM crypto
+│   ├── Network/               #   BCL-compatible Socket.IO protocol
 │   ├── Routing/               #   Audio routing graph (mixer, filters, panner)
-│   ├── VoiceChat/             #   Mic, Speaker, VCRoom
+│   ├── Voice/                 #   Mic, Speaker, VCRoom, HUD buttons
 │   ├── Game/                  #   Among Us integration (HUD, config, settings UI)
 │   ├── Patches/               #   Harmony patches
 │   ├── Android/               #   Android mic/speaker via Starlight
-│   └── AudioConstants.cs      #   Shared audio constants
-├── docker-compose.yml         # Docker: Go Server + Coturn
+│   ├── NAudio/                #   Audio providers & effects
+│   ├── Mixing/                #   Audio mixing
+│   └── Resources/             #   Embedded sprites & locale strings
 ├── nuget.config
-├── turnserver.conf
 └── .github/workflows/build.yml
 ```
 
 ## Build
 
-**Prerequisites:** Go 1.26+ (server), .NET 6 SDK (plugin)
+**Prerequisites:** .NET 6 SDK
 
 ```bash
-# ── Go Server ──
-cd voice-server-go
-go build -buildvcs=false -o voice-server .
-
-# ── Plugin (two-pass: first compile, second embeds dependencies) ──
-dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release
 dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release
 ```
+
+NAudio and Concentus are resolved from NuGet and embedded into the plugin DLL automatically, so a single build pass produces a self-contained plugin.
 
 **Install:** Copy `Interstellar.Client.dll` into `BepInEx/plugins/`.
-
-## Server
-
-### Quick Start
-
-```bash
-# Basic (HTTP, port 8000)
-./voice-server -addr :8000
-
-# Production with TURN and optimizations
-./voice-server \
-  -addr 0.0.0.0:22021 \
-  -optimal 100 \
-  -turn turn:your-turn-server.com:3478 \
-  -turn-user your-username \
-  -turn-pass your-password \
-  -redundancy 1
-
-# With TLS (WSS)
-./voice-server -addr :22021 -tls-cert cert.pem -tls-key key.pem
-
-# Docker
-docker compose up -d voice-server
-```
-
-### CLI Reference
-
-```
-voice-server [flags]
-
-  -addr string               Listen address (default ":8000")
-  -optimal int               Optimal player count (triggers capacity warning)
-  -turn string               TURN server URL (e.g., turn:ip:3478)
-  -turn-user string          TURN username
-  -turn-pass string          TURN password
-  -tls-cert string           TLS certificate path (enables WSS)
-  -tls-key string            TLS key path (enables WSS)
-  -secret string             AES-256-GCM key (64 hex chars = 32 bytes, optional)
-  -redundancy int            Audio redundancy for loss mitigation (0=off, 1=2x, 2=3x)
-  -max-bandwidth int         Max bandwidth per client in bytes/sec (0=unlimited)
-```
-
-### Environment Variables (Docker)
-
-| Variable | Equivalent Flag | Default |
-|----------|----------------|---------|
-| `OPTIMAL_PLAYERS` | `-optimal` | `0` |
-| `TURN_URL` | `-turn` | (empty) |
-| `TURN_USER` | `-turn-user` | (empty) |
-| `TURN_PASS` | `-turn-pass` | (empty) |
-| `MAX_BANDWIDTH_PER_CLIENT` | `-max-bandwidth` | `0` |
-
-### Dashboard
-
-Visit `http://your-server:22021/`.
-
-| Endpoint | Response |
-|----------|----------|
-| `GET /` | HTML dashboard (rooms, clients, encryption status, redundancy) |
-| `GET /health` | `{"status":"ok"}` |
-| `GET /stats` | `{"status":"ok","clients":5,"rooms":2,...}` |
-| `GET /api/rooms` | Full room list with player details |
-
-### Server Features
-
-| Feature | Description |
-|---------|-------------|
-| **AES-256-GCM** | Optional application-layer encryption with per-frame random nonce. |
-| **Audio Redundancy** | Sends each Opus frame N+1 times for packet loss mitigation. |
-| **Jitter Buffer** | 5-frame (~100ms) reorder buffer per audio source. |
-| **Bandwidth Limiter** | Token-bucket per-client rate limiting. |
-| **Zero-decode Relay** | Server never decodes Opus — pure passthrough with minimal latency. |
-| **Ping/Pong** | 15s WebSocket keep-alive, 45s timeout disconnect. |
-| **Docker** | ~8 MB Alpine image. |
 
 ## Voice Server Matching
 
@@ -191,35 +105,18 @@ OnlyMeetingOrLobby = false
 | `M` | Cycle mic mode: Global → Impostor Radio → Muted |
 | `N` | Toggle speaker on/off |
 
-## Docker
-
-```bash
-# Edit turnserver.conf with your TURN credentials, then:
-docker compose up -d
-```
-
-| Port | Protocol | Service |
-|------|----------|---------|
-| 22021 | TCP | Go Voice Server WebSocket |
-| 3478 | TCP+UDP | Coturn STUN/TURN |
-| 5349 | TCP+UDP | Coturn TURN TLS |
-| 49152–49252 | UDP | Coturn relay |
-
 ## CI
 
 GitHub Actions builds on push:
 
-- **Server** — Go cross-compile: `linux-amd64`, `linux-arm64`, `windows-amd64`, `darwin-amd64`
-- **Client** — .NET 6 BepInEx plugin (two-pass build)
-- **Docker** — Alpine image build (on tags)
-- **Release** — Auto-create GitHub Release with all artifacts (on tags)
+- **Client** — .NET 6 BepInEx plugin (single-pass build, dependencies embedded)
+- **Release** — Auto-create GitHub Release with the plugin (on tags)
 
 ## Credits
 
 - [NAudio](https://github.com/naudio/NAudio) — .NET audio library
 - [Concentus](https://github.com/lostromb/concentus) — .NET Opus codec
-- [Coturn](https://github.com/coturn/coturn) — TURN/STUN server
-- [Gorilla WebSocket](https://github.com/gorilla/websocket) — Go WebSocket library
+- [BetterCrewLink](https://github.com/OhMyGuus/BetterCrewLink) — voice server protocol reference
 
 ## License
 

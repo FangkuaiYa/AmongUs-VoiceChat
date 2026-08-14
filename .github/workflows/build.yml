@@ -5,72 +5,17 @@ on:
     paths:
       - '.github/workflows/build.yml'
       - 'Interstellar.Client/**'
-      - 'voice-server-go/**'
       - 'Interstellar.sln'
       - 'nuget.config'
-      - 'docker-compose.yml'
   pull_request:
     paths:
       - '.github/workflows/build.yml'
       - 'Interstellar.Client/**'
-      - 'voice-server-go/**'
       - 'Interstellar.sln'
       - 'nuget.config'
   workflow_dispatch:
 
 jobs:
-  # ── Go Voice Server: cross-platform build ─────────────────────────
-  server:
-    if: ${{ !contains(github.event.head_commit.message, 'Update README') }}
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        goos: [linux, windows, darwin]
-        goarch: [amd64, arm64]
-        exclude:
-          - goos: darwin
-            goarch: arm64
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          cache-dependency-path: voice-server-go/go.sum
-
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          cd voice-server-go
-          go build -buildvcs=false -ldflags="-s -w" -o voice-server-${{ matrix.goos }}-${{ matrix.goarch }} .
-
-      - name: Package (linux / darwin)
-        if: matrix.goos == 'linux' || matrix.goos == 'darwin'
-        run: |
-          cd voice-server-go
-          chmod +x voice-server-${{ matrix.goos }}-${{ matrix.goarch }}
-          tar czf voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz voice-server-${{ matrix.goos }}-${{ matrix.goarch }}
-
-      - name: Package (windows)
-        if: matrix.goos == 'windows'
-        run: |
-          cd voice-server-go
-          mv voice-server-${{ matrix.goos }}-${{ matrix.goarch }} voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.exe
-          zip voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.zip voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.exe
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: voice-server-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: voice-server-go/voice-server-${{ matrix.goos }}-${{ matrix.goarch }}.*
-
   # ── Client: BepInEx plugin (Windows, net6.0) ──────────────────────
   client:
     if: ${{ !contains(github.event.head_commit.message, 'Update README') }}
@@ -96,11 +41,8 @@ jobs:
       - name: Restore
         run: dotnet restore Interstellar.Client/Interstellar.Client.csproj
 
-      - name: Build Client (pass 1 — collect deps)
-        run: dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release
-
-      - name: Build Client (pass 2 — embed deps)
-        run: dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release
+      - name: Build Client
+        run: dotnet build Interstellar.Client/Interstellar.Client.csproj -c Release --no-restore
 
       - name: Collect output
         shell: bash
@@ -114,41 +56,13 @@ jobs:
           name: Interstellar.Client
           path: publish/Plugin/
 
-  # ── Docker image ──────────────────────────────────────────────────
-  docker:
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
-    needs: [server]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build
-        uses: docker/build-push-action@v6
-        with:
-          context: ./voice-server-go
-          push: false
-          tags: interstellar-voice-server:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   # ── Release: on tag, create GitHub Release ────────────────────────
   release:
     if: ${{ startsWith(github.ref, 'refs/tags/') }}
-    needs: [server, client]
+    needs: [client]
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download server artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: voice-server-*
-          path: artifacts/
-
       - name: Download client artifact
         uses: actions/download-artifact@v4
         with:
@@ -160,6 +74,4 @@ jobs:
         with:
           draft: true
           files: |
-            artifacts/**/*.tar.gz
-            artifacts/**/*.zip
             artifacts/Plugin/**/*

@@ -9,8 +9,8 @@
 *.user
 *.userosscache
 *.sln.docstates
-Interstellar/Libs/
-Interstellar/Libs.zip
+Interstellar.Client/Libs/
+Interstellar.Client/Libs.zip
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
