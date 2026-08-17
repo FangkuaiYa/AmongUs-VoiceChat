@@ -9,6 +9,7 @@ public static class PublicLobbyManager
     public class LobbyInfo
     {
         public int id { get; set; }
+        public string code { get; set; } = "";
         public string title { get; set; } = "";
         public string host { get; set; } = "";
         public int current_players { get; set; }

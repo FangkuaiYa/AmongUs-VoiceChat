@@ -47,26 +47,27 @@
   </ItemGroup>
 
   <!-- ================================================================
-       Embedded dependency DLLs — NAudio + Concentus only.
-       Embedded directly from NuGet reference assemblies in a single
-       build pass, so no Libs/ folder and no two-pass build are needed.
+       Embedded dependency DLLs — loaded at runtime by AssemblyResolve.
+       Condition ensures first build succeeds without Libs populated.
+       Second build embeds them after post-build copies DLLs to Libs/.
        ================================================================ -->
-  <Target Name="StageEmbeddedLibraries" BeforeTargets="SplitResourcesByCulture" DependsOnTargets="ResolveReferences">
+  <ItemGroup>
+    <EmbeddedResource Include="Libs\*.dll" Condition="Exists('Libs\NAudio.dll')">
+      <LogicalName>Lib.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- ================================================================
+       Post-build: copy all dependency DLLs from output → Libs/
+       so they are available for embedding on the next build.
+       Excludes the plugin DLL itself.
+       ================================================================ -->
+  <Target Name="CollectDependencies" AfterTargets="Build">
     <ItemGroup>
-      <_EmbeddedLib Include="@(ReferenceCopyLocalPaths)"
-                    Condition="'%(ReferenceCopyLocalPaths.Filename)' == 'NAudio'
-                            Or '%(ReferenceCopyLocalPaths.Filename)' == 'NAudio.Core'
-                            Or '%(ReferenceCopyLocalPaths.Filename)' == 'NAudio.Asio'
-                            Or '%(ReferenceCopyLocalPaths.Filename)' == 'NAudio.Midi'
-                            Or '%(ReferenceCopyLocalPaths.Filename)' == 'NAudio.Wasapi'
-                            Or '%(ReferenceCopyLocalPaths.Filename)' == 'NAudio.WinMM'
-                            Or '%(ReferenceCopyLocalPaths.Filename)' == 'Concentus'" />
+      <_DepDlls Include="$(TargetDir)*.dll" Exclude="$(TargetDir)Interstellar.Client.dll" />
     </ItemGroup>
-    <ItemGroup>
-      <EmbeddedResource Include="@(_EmbeddedLib)">
-        <LogicalName>Lib.%(Filename)%(Extension)</LogicalName>
-      </EmbeddedResource>
-    </ItemGroup>
+    <Copy SourceFiles="@(_DepDlls)" DestinationFolder="$(ProjectDir)Libs" SkipUnchangedFiles="true" />
+    <Message Text="Collected @(_DepDlls-&gt;Count()) dependency DLL(s) into Libs/ — rebuild to embed them." Importance="high" />
   </Target>
 
 </Project>

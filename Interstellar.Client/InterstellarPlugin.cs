@@ -56,12 +56,11 @@ public class InterstellarPlugin : BasePlugin
         ClassInjector.RegisterTypeInIl2Cpp<VoiceSettingsWindow>();
         ClassInjector.RegisterTypeInIl2Cpp<PublicLobbyWindow>();
 
-        // Attach to plugin GameObject (MCI pattern)
         var settingsWindow = this.AddComponent<VoiceSettingsWindow>();
         var lobbyWindow = this.AddComponent<PublicLobbyWindow>();
 
-        // Open settings immediately when game starts
-        settingsWindow.Open();
+        _ = settingsWindow;
+        _ = lobbyWindow;
 
         VCManager.RegisterSceneHook();
         InterstellarHudState.Init();

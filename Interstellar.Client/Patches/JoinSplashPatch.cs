@@ -17,10 +17,6 @@ public static class JoinSplashScreen
 {
     private static bool _isShowing;
 
-    /// <summary>
-    /// Call when VoiceRoom.Start() succeeds. Shows a fade-in → hold → fade-out overlay.
-    /// Does NOT require ServerInfo to be received yet — shows what's available.
-    /// </summary>
     private static MonoBehaviour? _runner;
 
     public static void Show()
