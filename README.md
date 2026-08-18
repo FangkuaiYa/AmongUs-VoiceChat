@@ -44,26 +44,6 @@ The plugin resolves each Among Us region to a voice server URL through three lay
 | 3 | API | Fetched from the configured server list API at startup |
 | Fallback | Built-in default | Used when no match is found |
 
-**API and custom server format:**
-
-```json
-{
-  "servers": [
-    {
-      "name": "Region Name",
-      "address": "game-server.example.com",
-      "port": 443,
-      "vc": "ws://voice-server.example.com:22021",
-      "vcLocation": "Location Label"
-    }
-  ]
-}
-```
-
-- `name` — Among Us region name (case-insensitive)
-- `vc` — WebSocket URL of the voice server
-- `vcLocation` — Human-readable label shown in HUD
-
 ## Plugin Config
 
 `BepInEx/config/com.voicechatplugin.cn.cfg`:
