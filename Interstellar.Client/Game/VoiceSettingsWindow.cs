@@ -105,6 +105,7 @@ public class VoiceSettingsWindow : MonoBehaviour
 
             // avoid stacking two windows on top of each other
             try { PublicLobbyWindow.Instance?.Close(); } catch { }
+            try { PlayerVolumeWindow.Instance?.Close(); } catch { }
 
             _uiRoot.SetActive(true);
             ShowWindow = true;
@@ -188,7 +189,7 @@ public class VoiceSettingsWindow : MonoBehaviour
     {
         // Title
         var title = VCUiKit.CreateText(win, "Title", Get("vc.settings.title", "Voice Chat Settings"),
-            Vector2.zero, new Vector2(560f, 44f), F(28f), new Color(0.92f, 0.95f, 1f, 1f),
+            Vector2.zero, new Vector2(380f, 44f), F(28f), new Color(0.92f, 0.95f, 1f, 1f),
             FontStyles.Bold, TextAlignmentOptions.Left);
         var titleRt = (RectTransform)title.transform;
         titleRt.anchorMin = new Vector2(0f, 0.5f);
@@ -198,13 +199,23 @@ public class VoiceSettingsWindow : MonoBehaviour
 
         // Public Lobby button (right of title bar)
         var lobby = VCUiKit.CreateButton(win, Get("vc.settings.publicLobby", "Public Lobby"),
-            Vector2.zero, new Vector2(220f, 44f), new Color(0.20f, 0.42f, 0.80f, 1f), () =>
+            Vector2.zero, new Vector2(190f, 44f), new Color(0.20f, 0.42f, 0.80f, 1f), () =>
             {
                 PublicLobbyWindow.Instance?.Toggle();
-            }, F(20f));
+            }, F(18f));
         var lobbyRt = (RectTransform)lobby.transform;
         lobbyRt.anchorMin = lobbyRt.anchorMax = new Vector2(1f, 0.5f);
-        lobbyRt.anchoredPosition = new Vector2(-185f, WinH / 2f - TitleBarH / 2f);
+        lobbyRt.anchoredPosition = new Vector2(-165f, WinH / 2f - TitleBarH / 2f);
+
+        // Player Volume button (per-player volume sliders — also opened with F3)
+        var playerVol = VCUiKit.CreateButton(win, Get("vc.settings.playerVolume", "Player Volume"),
+            Vector2.zero, new Vector2(190f, 44f), new Color(0.24f, 0.34f, 0.24f, 1f), () =>
+            {
+                PlayerVolumeWindow.Instance?.Toggle();
+            }, F(18f));
+        var playerVolRt = (RectTransform)playerVol.transform;
+        playerVolRt.anchorMin = playerVolRt.anchorMax = new Vector2(1f, 0.5f);
+        playerVolRt.anchoredPosition = new Vector2(-369f, WinH / 2f - TitleBarH / 2f);
 
         // Close button (top right)
         var close = VCUiKit.CreateButton(win, "X", Vector2.zero, new Vector2(44f, 44f),
@@ -523,10 +534,10 @@ public class VoiceSettingsWindow : MonoBehaviour
                 F(18f), Color.gray, FontStyles.Normal, TextAlignmentOptions.Left, true);
         }
 
-        AddRowSlider(Get("vc.settings.micVolume", "Mic Volume") + ":", 0.1f, 2f, VoiceConfig.MicVolume,
+        AddRowSlider(Get("vc.settings.micVolume", "Mic Volume") + ":", 0.1f, 3f, VoiceConfig.MicVolume,
             v => { VoiceConfig.SetMicVolume(v); VoiceRoom.Current?.SetMicVolume(v); },
             v => $"{v * 100f:F0}%");
-        AddRowSlider(Get("vc.settings.masterVolume", "Master Volume") + ":", 0.1f, 2f, VoiceConfig.MasterVolume,
+        AddRowSlider(Get("vc.settings.masterVolume", "Master Volume") + ":", 0.1f, 3f, VoiceConfig.MasterVolume,
             v => { VoiceConfig.SetMasterVolume(v); VoiceRoom.Current?.SetMasterVolume(v); },
             v => $"{v * 100f:F0}%");
     }

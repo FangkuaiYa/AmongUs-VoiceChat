@@ -55,12 +55,15 @@ public class InterstellarPlugin : BasePlugin
         ClassInjector.RegisterTypeInIl2Cpp<JoinSplashScreen.SplashCoroutineRunner>();
         ClassInjector.RegisterTypeInIl2Cpp<VoiceSettingsWindow>();
         ClassInjector.RegisterTypeInIl2Cpp<PublicLobbyWindow>();
+        ClassInjector.RegisterTypeInIl2Cpp<PlayerVolumeWindow>();
 
         var settingsWindow = this.AddComponent<VoiceSettingsWindow>();
         var lobbyWindow = this.AddComponent<PublicLobbyWindow>();
+        var playerVolumeWindow = this.AddComponent<PlayerVolumeWindow>();
 
         _ = settingsWindow;
         _ = lobbyWindow;
+        _ = playerVolumeWindow;
 
         VCManager.RegisterSceneHook();
         InterstellarHudState.Init();

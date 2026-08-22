@@ -23,7 +23,11 @@ internal sealed class AudioPreprocessor
     private float _dc;                // DC offset estimate
     private float _env;               // smoothed input envelope
     private float _noiseFloor;        // adaptive noise floor estimate
-    private float _gain;              // smoothed applied gain
+    private float _gain;              // smoothed applied gain (noise gate + echo duck)
+    private float _agcGain = 1f;      // smoothed automatic-gain-control makeup gain
+    private const float AgcTargetPeak = 0.35f;
+    private const float AgcMinGain = 1f;
+    private const float AgcMaxGain = 4f;
     private bool _inited;
     private float _vadHangover;       // seconds of VAD hangover remaining
     private const float VADHangoverSeconds = 0.3f;
@@ -109,19 +113,32 @@ internal sealed class AudioPreprocessor
             }
         }
 
-        // 4) Echo suppression: remote audio playing + local below speech → squelch.
-        if (echoCancellation && farEndLevel > 0.02f && _env < MathF.Max(_noiseFloor * 3f, 0.003f))
+        if (echoCancellation && farEndLevel > 0.01f)
         {
-            target = MathF.Min(target, 0.02f);
+            float dominance = farEndLevel / (farEndLevel + _env + 1e-6f);
+            float echoTarget = 1f - dominance * 0.92f;
+            target = MathF.Min(target, echoTarget);
         }
 
         // Smooth gain to avoid clicks: close fast, open slower.
         float gk = target < _gain ? 0.4f : 0.15f;
         _gain += (target - _gain) * gk;
 
-        if (_gain < 0.999f)
+        if (IsSpeech && _env > 0.001f)
         {
-            for (int i = 0; i < count; i++) samples[i] *= _gain;
+            float desired = _env > 0f ? Math.Clamp(AgcTargetPeak / _env, AgcMinGain, AgcMaxGain) : _agcGain;
+            float agcK = desired > _agcGain ? 0.03f : 0.15f;
+            _agcGain += (desired - _agcGain) * agcK;
+        }
+
+        float totalGain = _gain * _agcGain;
+        if (totalGain < 0.999f || totalGain > 1.001f)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                float y = samples[i] * totalGain;
+                samples[i] = y < -1f ? -1f : (y > 1f ? 1f : y);
+            }
         }
     }
 }

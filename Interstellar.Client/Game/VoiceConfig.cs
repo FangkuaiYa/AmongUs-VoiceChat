@@ -51,12 +51,12 @@ public static class VoiceConfig
     // ── Volume ─────────────────────────────────────────────
     public static float MasterVolume
     {
-        get => Math.Clamp(_masterVol?.Value ?? 1f, 0.1f, 2f);
+        get => Math.Clamp(_masterVol?.Value ?? 1f, 0.1f, 3f);
         set { if (_masterVol != null) _masterVol.Value = value; }
     }
     public static float MicVolume
     {
-        get => Math.Clamp(_micVol?.Value ?? 1f, 0.1f, 2f);
+        get => Math.Clamp(_micVol?.Value ?? 1f, 0.1f, 3f);
         set { if (_micVol != null) _micVol.Value = value; }
     }
 
@@ -158,6 +158,55 @@ public static class VoiceConfig
         set { if (_publicLang != null) _publicLang.Value = value; }
     }
 
+    // ── Per-player volume (0%-200%, remembered by player name) ─
+    // In-memory cache is the source of truth during play; mirrored to a
+    // single serialized config entry so it survives between sessions.
+    public static readonly Dictionary<string, float> PlayerVolumes = new();
+
+    public static float GetPlayerVolume(string playerName)
+        => !string.IsNullOrEmpty(playerName) && PlayerVolumes.TryGetValue(playerName, out var v) ? v : 1f;
+
+    public static void SetPlayerVolume(string playerName, float volume)
+    {
+        if (string.IsNullOrEmpty(playerName)) return;
+        PlayerVolumes[playerName] = Math.Clamp(volume, 0f, 2f);
+        SavePlayerVolumes();
+    }
+
+    private static void SavePlayerVolumes()
+    {
+        if (_savedPlayerVolumes == null) return;
+        var sb = new System.Text.StringBuilder();
+        foreach (var kv in PlayerVolumes)
+        {
+            if (Math.Abs(kv.Value - 1f) < 0.005f) continue; // skip defaults, keep the entry small
+            if (string.IsNullOrEmpty(kv.Key)) continue;
+            if (sb.Length > 0) sb.Append(';');
+            sb.Append(kv.Key.Replace(';', '_').Replace('=', '_'));
+            sb.Append('=');
+            sb.Append(kv.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        _savedPlayerVolumes.Value = sb.ToString();
+    }
+
+    private static void LoadPlayerVolumes()
+    {
+        PlayerVolumes.Clear();
+        var raw = _savedPlayerVolumes?.Value ?? "";
+        if (string.IsNullOrEmpty(raw)) return;
+        foreach (var part in raw.Split(';'))
+        {
+            if (string.IsNullOrEmpty(part)) continue;
+            int idx = part.LastIndexOf('=');
+            if (idx <= 0 || idx == part.Length - 1) continue;
+            var name = part[..idx];
+            var valStr = part[(idx + 1)..];
+            if (float.TryParse(valStr, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var v))
+                PlayerVolumes[name] = Math.Clamp(v, 0f, 2f);
+        }
+    }
+
     // ── Device caches ──────────────────────────────────────
     public static List<string> MicrophoneDevices { get; } = new();
     public static List<string> SpeakerDevices { get; } = new();
@@ -176,6 +225,7 @@ public static class VoiceConfig
     private static ConfigEntry<bool>? _hostCommSab, _hostCamera, _hostImpRadio, _hostMeetingOnly;
     private static ConfigEntry<bool>? _publicLobby;
     private static ConfigEntry<string>? _publicTitle, _publicLang;
+    private static ConfigEntry<string>? _savedPlayerVolumes;
 
     private static bool _devicesCached;
 
@@ -225,9 +275,9 @@ public static class VoiceConfig
         _mic = cfg.Bind("VoiceChat", "MicrophoneDevice", "", "Microphone device name.");
         _speaker = cfg.Bind("VoiceChat", "SpeakerDevice", "", "Speaker device name.");
         _masterVol = cfg.Bind("VoiceChat", "MasterVolume", 1f,
-            new ConfigDescription("Master output volume", new AcceptableValueRange<float>(0.1f, 2f)));
+            new ConfigDescription("Master output volume", new AcceptableValueRange<float>(0.1f, 3f)));
         _micVol = cfg.Bind("VoiceChat", "MicVolume", 1f,
-            new ConfigDescription("Mic input volume", new AcceptableValueRange<float>(0.1f, 2f)));
+            new ConfigDescription("Mic input volume", new AcceptableValueRange<float>(0.1f, 3f)));
 
         _noiseSuppression = cfg.Bind("VoiceChat", "NoiseSuppression", true);
         _echoCancellation = cfg.Bind("VoiceChat", "EchoCancellation", true);
@@ -250,6 +300,10 @@ public static class VoiceConfig
         _publicLobby = cfg.Bind("VoiceChat.Room", "PublicLobby", false);
         _publicTitle = cfg.Bind("VoiceChat.Room", "PublicTitle", "Among Us Lobby");
         _publicLang = cfg.Bind("VoiceChat.Room", "PublicLanguage", "en");
+
+        _savedPlayerVolumes = cfg.Bind("VoiceChat", "PlayerVolumes", "",
+            "Per-player volume overrides (0%-200%), remembered by player name. Internal serialized format.");
+        LoadPlayerVolumes();
 
         ApplyLocalHostSettingsToSynced();
     }

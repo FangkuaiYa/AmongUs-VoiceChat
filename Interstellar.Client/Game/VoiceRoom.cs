@@ -125,6 +125,9 @@ public class VoiceRoom
                     if (_clients.TryGetValue(clientId, out var p))
                     {
                         p.UpdateProfile(playerId, playerName);
+                        // Re-apply any saved per-player volume for this name (0%-200%),
+                        // since UpdateProfile doesn't touch the client volume itself.
+                        p.SetVolume(VoiceConfig.GetPlayerVolume(playerName));
                         // InterstellarPlugin.Logger.LogInfo($"[VC] Client {clientId}: id={playerId} name={playerName}");
                     }
                 },
