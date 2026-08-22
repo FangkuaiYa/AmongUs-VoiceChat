@@ -73,8 +73,26 @@ public static class PlayerNameSpeakingIconPatch
             processedIds.Add(id);
             if (pc.cosmetics?.nameText == null) continue;
 
-            // Hide icons when player name/body is hidden or the name is faded out
-            bool nameHidden = !pc.cosmetics.nameText.gameObject.activeInHierarchy;
+            int clientId = pc.OwnerId;
+
+            // Local player: while our own mic is off, never show a speaking icon
+            // for ourselves, no matter what. This is checked first and
+            // unconditionally so a muted mic can never leave a stale icon behind.
+            bool isLocalPlayer = clientId == (AmongUsClient.Instance?.ClientId ?? -2);
+            if (isLocalPlayer && room.Mute)
+            {
+                RemoveSpeakingIcon(id);
+                RemoveNoConnectIcon(id);
+                continue;
+            }
+
+            // Hide icons when player name/body is hidden or the name is faded out.
+            // nameText.renderer.isVisible additionally catches cases where the name
+            // is being visually clipped/occluded (e.g. shadowed/out-of-vision areas)
+            // without the GameObject itself being deactivated or its alpha changing.
+            var nameRenderer = pc.cosmetics.nameText.GetComponent<Renderer>();
+            bool nameHidden = !pc.cosmetics.nameText.gameObject.activeInHierarchy
+                || (nameRenderer != null && !nameRenderer.isVisible);
             float nameAlpha = pc.cosmetics.nameText.alpha;
             float bodyAlpha = pc.cosmetics.currentBodySprite?.BodySprite?.color.a ?? 1f;
             if (nameHidden || pc.inVent || bodyAlpha < 0.01f || nameAlpha < 0.01f)
@@ -84,7 +102,6 @@ public static class PlayerNameSpeakingIconPatch
                 continue;
             }
 
-            int clientId = pc.OwnerId;
             bool isConnected = connectedIds.Contains(clientId);
             bool isSpeaking = speakingIds.Contains(clientId);
 
@@ -190,9 +207,12 @@ public static class PlayerNameSpeakingIconPatch
         go.layer = pc.gameObject.layer;
         var sr = go.AddComponent<SpriteRenderer>();
         sr.sprite = sprite;
-        // Same sorting layer as the name, one order above it.
+        // Same sorting layer AND same order as the name itself (not +1).
+        // Anything that visually covers the name (e.g. a shadow/darkness layer
+        // sitting just above the name's own order) then covers the icon too,
+        // instead of the icon winning sorting ties and staying visible on top.
         sr.sortingLayerID = nameText.sortingLayerID;
-        sr.sortingOrder = nameText.sortingOrder + 1;
+        sr.sortingOrder = nameText.sortingOrder;
         UpdateIconPosition(go, pc);
         cache[playerId] = go;
     }
@@ -207,9 +227,10 @@ public static class PlayerNameSpeakingIconPatch
 
         var sr = go.GetComponent<SpriteRenderer>();
         if (sr == null) return;
-        // Keep the icon on the name's sorting layer, one order above it.
+        // Keep the icon on the exact same sorting layer/order as the name,
+        // so anything that occludes the name also occludes the icon.
         sr.sortingLayerID = nameText.sortingLayerID;
-        sr.sortingOrder = nameText.sortingOrder + 1;
+        sr.sortingOrder = nameText.sortingOrder;
         // Follow the name's fade (e.g. behind walls) with a slight transparency.
         sr.color = new Color(1f, 1f, 1f, Mathf.Clamp01(nameText.alpha * 0.7f));
     }

@@ -88,20 +88,31 @@ internal sealed class AudioPreprocessor
         float target = 1f;
 
         // 3) Noise suppression: downward expander below the speech threshold.
+        //    Steady-state noise (mains hum / coil whine / electrical interference
+        //    picked up by the mic, fan noise, etc.) never trips the VAD hangover,
+        //    so when IsSpeech is false we squelch it fully instead of leaving the
+        //    old ~-22 dB residual, which was audible as a constant faint hum/whine
+        //    on other players' streams. While inside an actual speech burst we
+        //    still only apply gentle suppression to short quiet dips (breaths,
+        //    plosives) so words aren't chopped.
         if (noiseSuppression)
         {
             float speechThresh = MathF.Max(_noiseFloor * 4f, 0.004f);
-            if (_env < speechThresh)
+            if (!IsSpeech)
+            {
+                target = 0f; // confirmed non-speech: fully squelch (kills hum/coil-whine)
+            }
+            else if (_env < speechThresh)
             {
                 float r = _env / speechThresh;
-                target = 0.08f + 0.92f * r; // floor at ~-22 dB for pure noise
+                target = 0.25f + 0.75f * (r * r); // soft floor only within a speech burst
             }
         }
 
         // 4) Echo suppression: remote audio playing + local below speech → squelch.
         if (echoCancellation && farEndLevel > 0.02f && _env < MathF.Max(_noiseFloor * 3f, 0.003f))
         {
-            target = MathF.Min(target, 0.08f);
+            target = MathF.Min(target, 0.02f);
         }
 
         // Smooth gain to avoid clicks: close fast, open slower.
