@@ -22,6 +22,7 @@ internal sealed class AudioPreprocessor
     private float _x1, _x2, _y1, _y2; // filter state
     private float _dc;                // DC offset estimate
     private float _env;               // smoothed input envelope
+    private float _envPeak;           // peak tracker for noise floor (holds peak longer)
     private float _noiseFloor;        // adaptive noise floor estimate
     private float _gain;              // smoothed applied gain (noise gate + echo duck)
     private float _agcGain = 1f;      // smoothed automatic-gain-control makeup gain
@@ -30,7 +31,7 @@ internal sealed class AudioPreprocessor
     private const float AgcMaxGain = 4f;
     private bool _inited;
     private float _vadHangover;       // seconds of VAD hangover remaining
-    private const float VADHangoverSeconds = 0.3f;
+    private const float VADHangoverSeconds = 0.35f;
 
     /// <summary>True while the current frame (or its recent tail) contains speech.</summary>
     public bool IsSpeech { get; private set; }
@@ -74,15 +75,23 @@ internal sealed class AudioPreprocessor
         }
 
         // Envelope smoothing: fast attack, slow release.
-        float envK = max > _env ? 0.25f : 0.02f;
+        float envK = max > _env ? 0.30f : 0.015f;
         _env += (max - _env) * envK;
 
-        // Noise floor: slow minimum follower that can also rise with real noise.
-        if (!_inited) { _noiseFloor = _env; _inited = true; }
-        if (_env < _noiseFloor) _noiseFloor = _env;
-        else _noiseFloor = _noiseFloor * 1.0005f + 1e-7f;
+        // Peak tracker for noise floor — holds the envelope peak longer so
+        // the noise floor estimate stays close to the actual noise level.
+        if (max > _envPeak) _envPeak = max;
+        else _envPeak *= 0.998f; // slow decay (~1.5s half-life at 48 kHz / 960)
 
-        // 5) Voice activity detection — adaptive threshold + 300ms hangover.
+        // Noise floor: tracks the slow minimum of the peak envelope with
+        // faster upward adaptation so it keeps up with changing noise.
+        if (!_inited) { _noiseFloor = _envPeak; _inited = true; }
+        if (_envPeak < _noiseFloor)
+            _noiseFloor = _noiseFloor * 0.998f + _envPeak * 0.002f; // fast drop
+        else
+            _noiseFloor = _noiseFloor * 0.9995f + _envPeak * 0.0005f; // slow rise (~0.5s)
+
+        // 5) Voice activity detection — adaptive threshold + 350ms hangover.
         float vadThresh = MathF.Max(_noiseFloor * 2.5f, 0.003f);
         float frameSeconds = count / SampleRate;
         if (_env > vadThresh) _vadHangover = VADHangoverSeconds;
@@ -91,25 +100,19 @@ internal sealed class AudioPreprocessor
 
         float target = 1f;
 
-        // 3) Noise suppression: downward expander below the speech threshold.
-        //    Steady-state noise (mains hum / coil whine / electrical interference
-        //    picked up by the mic, fan noise, etc.) never trips the VAD hangover,
-        //    so when IsSpeech is false we squelch it fully instead of leaving the
-        //    old ~-22 dB residual, which was audible as a constant faint hum/whine
-        //    on other players' streams. While inside an actual speech burst we
-        //    still only apply gentle suppression to short quiet dips (breaths,
-        //    plosives) so words aren't chopped.
         if (noiseSuppression)
         {
-            float speechThresh = MathF.Max(_noiseFloor * 4f, 0.004f);
+            float speechThresh = MathF.Max(_noiseFloor * 3.5f, 0.005f);
             if (!IsSpeech)
             {
-                target = 0f; // confirmed non-speech: fully squelch (kills hum/coil-whine)
+                float r = MathF.Min(_env / speechThresh, 1f);
+                float r2 = r * r;
+                target = 0.08f + 0.92f * r2;
             }
             else if (_env < speechThresh)
             {
                 float r = _env / speechThresh;
-                target = 0.25f + 0.75f * (r * r); // soft floor only within a speech burst
+                target = 0.60f + 0.40f * r;
             }
         }
 

@@ -813,6 +813,42 @@
     "14": "取消",
     "18": "إلغاء"
   },
+  "vc.settings.playerVolume": {
+    "0": "Player Volume",
+    "4": "플레이어 볼륨",
+    "11": "プレイヤー音量",
+    "13": "玩家音量",
+    "14": "玩家音量",
+    "9": "Spieler-Lautstärke",
+    "18": "صوت اللاعب"
+  },
+  "vc.playerVolume.title": {
+    "0": "Player Volumes",
+    "4": "플레이어 볼륨",
+    "11": "プレイヤー音量",
+    "13": "玩家音量调节",
+    "14": "玩家音量調節",
+    "9": "Spieler-Lautstärken",
+    "18": "أصوات اللاعبين"
+  },
+  "vc.playerVolume.noRoom": {
+    "0": "Not connected to a voice room.",
+    "4": "음성 방에 연결되지 않았습니다.",
+    "11": "ボイスルームに接続されていません。",
+    "13": "未连接到语音房间。",
+    "14": "未連接到語音房間。",
+    "9": "Nicht mit einem Sprachraum verbunden.",
+    "18": "غير متصل بغرفة صوتية."
+  },
+  "vc.playerVolume.noPlayers": {
+    "0": "No other players connected yet.",
+    "4": "다른 플레이어가 아직 연결되지 않았습니다.",
+    "11": "他のプレイヤーがまだ接続されていません。",
+    "13": "暂无其他玩家连接。",
+    "14": "暫無其他玩家連接。",
+    "9": "Noch keine anderen Spieler verbunden.",
+    "18": "لا يوجد لاعبون آخرون متصلون بعد."
+  },
   "vc.common.on": {
     "0": "ON",
     "4": "켜짐",
