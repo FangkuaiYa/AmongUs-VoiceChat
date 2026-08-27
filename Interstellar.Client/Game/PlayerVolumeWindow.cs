@@ -19,7 +19,7 @@ public class PlayerVolumeWindow : MonoBehaviour
 
     private const KeyCode ToggleKey = KeyCode.F3;
 
-    private const float WinW = 640f;
+    private const float WinW = 740f;
     private const float WinH = 760f;
     private const float TitleBarH = 64f;
     private const float RowH = 68f;
@@ -286,9 +286,25 @@ public class PlayerVolumeWindow : MonoBehaviour
     {
         var row = AddRow();
 
-        string displayName = string.IsNullOrWhiteSpace(p.PlayerName) ? "..." : p.PlayerName;
+        string displayName = "...";
+        if (p.IsMapped)
+        {
+            foreach (var pc in PlayerControl.AllPlayerControls.ToArray())
+            {
+                if (pc != null && pc.PlayerId == p.PlayerId)
+                {
+                    var data = pc.Data;
+                    if (data != null && !string.IsNullOrWhiteSpace(data.PlayerName))
+                        displayName = data.PlayerName;
+                    break;
+                }
+            }
+        }
+        if (displayName == "..." && !string.IsNullOrWhiteSpace(p.PlayerName))
+            displayName = p.PlayerName;
+
         VCUiKit.CreateText(row, "Name", displayName,
-            new Vector2(-ContentW / 2f + 70f + 150f, 0f), new Vector2(300f, RowH - 12f),
+            new Vector2(-ContentW / 2f + 170f, 0f), new Vector2(250f, RowH - 12f),
             F(21f), Color.white, FontStyles.Bold, TextAlignmentOptions.Left, true);
 
         var valueTmp = VCUiKit.CreateText(row, "Value", $"{p.Volume * 100f:F0}%", Vector2.zero,
@@ -299,6 +315,7 @@ public class PlayerVolumeWindow : MonoBehaviour
         vrt.anchoredPosition = new Vector2(-40f, 0f);
 
         float sliderW = 240f;
+        byte pid = p.PlayerId;
         string pname = p.PlayerName;
         VCUiKit.CreateSlider(row, new Vector2(ContentRight - 40f - 70f - 20f - sliderW / 2f, 0f),
             new Vector2(sliderW, 44f), 0f, 2f, p.Volume,
