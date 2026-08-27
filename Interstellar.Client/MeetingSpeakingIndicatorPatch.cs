@@ -49,21 +49,21 @@ public static class MeetingSpeakingIndicatorPatch
         {
             if (state == null || !state.HighlightedFX) continue;
 
-            bool isSpeaking = speaking.Contains(state.TargetPlayerId);
+            bool isSpeaking = speaking.Contains(state.PlayerId);
 
             if (isSpeaking)
             {
-                Color glowColor = GetPlayerColor(state.TargetPlayerId);
+                Color glowColor = GetPlayerColor(state.PlayerId);
 
-                if (!OriginalGlowColors.ContainsKey(state.TargetPlayerId))
-                    OriginalGlowColors[state.TargetPlayerId] = state.HighlightedFX.color;
+                if (!OriginalGlowColors.ContainsKey(state.PlayerId))
+                    OriginalGlowColors[state.PlayerId] = state.HighlightedFX.color;
 
                 state.HighlightedFX.color = glowColor;
                 state.HighlightedFX.enabled = true;
             }
             else
             {
-                if (OriginalGlowColors.TryGetValue(state.TargetPlayerId, out var orig))
+                if (OriginalGlowColors.TryGetValue(state.PlayerId, out var orig))
                     state.HighlightedFX.color = orig;
                 state.HighlightedFX.enabled = false;
             }
