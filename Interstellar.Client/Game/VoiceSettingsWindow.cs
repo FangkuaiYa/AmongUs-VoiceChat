@@ -469,38 +469,43 @@ public class VoiceSettingsWindow : MonoBehaviour
         srt.anchorMin = srt.anchorMax = new Vector2(1f, 0.5f);
         srt.anchoredPosition = new Vector2(-40f - 110f - 14f - 165f, 0f);
 
-        // Custom URL row
+        // Custom URL row — inline text input (GMIA-style)
         if (cur >= serverNames.Length - 1)
         {
             var urlRow = AddRow();
             AddLabel(urlRow, Get("vc.settings.url", "URL") + ":");
 
-            var edit = VCUiKit.CreateButton(urlRow, Get("vc.settings.edit", "Edit"),
-                Vector2.zero, new Vector2(90f, 44f), new Color(0.16f, 0.42f, 0.70f, 1f), () =>
-                {
-                    VCTextInputPopup.Show(Get("vc.settings.customUrl", "Custom Server URL"),
-                        "https://...", VoiceConfig.CustomServerURL, 200, v =>
-                        {
-                            VoiceConfig.CustomServerURL = v;
-                            RebuildContent();
-                        });
-                }, F(19f));
-            var ert = (RectTransform)edit.transform;
-            ert.anchorMin = ert.anchorMax = new Vector2(1f, 0.5f);
-            ert.anchoredPosition = new Vector2(-40f, 0f);
+            var inputField = VCUiKit.CreateTextInput(urlRow.transform, "URLInput",
+                Vector2.zero, new Vector2(380f, 44f),
+                new Color(0.10f, 0.13f, 0.20f, 1f), "https://...", 18f, 200);
+            inputField.text = VoiceConfig.CustomServerURL ?? "";
+            var irt = (RectTransform)inputField.transform;
+            irt.anchorMin = irt.anchorMax = new Vector2(0.5f, 0.5f);
+            irt.anchoredPosition = new Vector2(-30f, 0f);
 
-            string urlText = string.IsNullOrEmpty(VoiceConfig.CustomServerURL)
-                ? Get("vc.settings.empty", "(empty)") : VoiceConfig.CustomServerURL;
-            VCUiKit.CreateText(urlRow, "Url", Truncate(urlText, 30), Vector2.zero,
-                new Vector2(430f, RowH - 12f), F(18f), new Color(0.68f, 0.73f, 0.84f, 1f),
-                FontStyles.Normal, TextAlignmentOptions.Left, true);
+            var saveBtn = VCUiKit.CreateButton(urlRow, "OK",
+                Vector2.zero, new Vector2(70f, 44f), new Color(0.20f, 0.62f, 0.33f, 1f), () =>
+                {
+                    var url = inputField.text?.Trim();
+                    if (string.IsNullOrEmpty(url)) return;
+                    VoiceConfig.CustomServerURL = url;
+                    VoiceRoom.RestartForCurrentGame();
+                    RebuildContent();
+                }, F(18f));
+            var srt2 = (RectTransform)saveBtn.transform;
+            srt2.anchorMin = srt2.anchorMax = new Vector2(1f, 0.5f);
+            srt2.anchoredPosition = new Vector2(-40f, 0f);
         }
     }
 
     private void OnServerSelected(int idx)
     {
         VoiceConfig.SelectedServerIndex = idx;
-        VoiceRoom.RestartForCurrentGame();
+        var serverNames = ServerList.GetServerNames();
+        if (idx < serverNames.Length - 1)
+        {
+            VoiceRoom.RestartForCurrentGame();
+        }
         RebuildContent();
     }
 
